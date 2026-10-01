@@ -10,6 +10,7 @@ import {
 } from '../src/llm/internal/prompts/scripts.js';
 import {
   germanHardViolations,
+  germanLinkFactSpine,
   reviewGermanOnAirText,
 } from '../src/llm/internal/prompts/german-on-air.js';
 import { recentCalls } from '../src/llm/dj.js';
@@ -189,6 +190,15 @@ for (const kind of ['hourly', 'station-id', 'link']) {
   );
 }
 
+const safeLinkSpine = germanLinkFactSpine(track);
+const creativeLinks = outputs.filter(
+  (row) => row.kind === 'link' && row.text && row.text !== safeLinkSpine,
+).length;
+assert.ok(
+  creativeLinks >= 1,
+  'expected at least one German link to retain a reviewed subjective reaction',
+);
+
 const qualityCalls = recentCalls
   .filter((c: any) => String(c.kind || '').startsWith('onAirQuality.'))
   .map((c: any) => ({
@@ -200,7 +210,10 @@ const qualityCalls = recentCalls
     response: c.response,
   }));
 
-assert.ok(qualityCalls.length >= 14, 'expected reviewer calls for 9 outputs + 5 regressions');
+assert.ok(
+  qualityCalls.length >= 11,
+  'expected reviewer calls for 6 hourly/ident outputs + 5 regressions; link reactions may fail closed before review',
+);
 assert.ok(
   qualityCalls.every((c: any) =>
     String(c.via || '').includes(':pinned')
