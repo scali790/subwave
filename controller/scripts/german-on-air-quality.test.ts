@@ -176,7 +176,15 @@ test('compact reviewer decision format parses without structured-output tooling'
     verdict: 'pass',
     text: '',
   });
+  assert.deepEqual(parseGermanQualityDecision('PASS.'), {
+    verdict: 'pass',
+    text: '',
+  });
   assert.deepEqual(parseGermanQualityDecision('DROP'), {
+    verdict: 'drop',
+    text: '',
+  });
+  assert.deepEqual(parseGermanQualityDecision('DROP.'), {
     verdict: 'drop',
     text: '',
   });
