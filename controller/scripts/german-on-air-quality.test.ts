@@ -239,6 +239,25 @@ test('station ID hard gate rejects invented concrete scenery but not abstract st
   );
 });
 
+test('station scenery detector handles German linking-s compounds', () => {
+  for (const phrase of [
+    'Morgensonne',
+    'Vormittagssonne',
+    'Mittagssonne',
+    'Nachmittagssonne',
+    'Abendsonne',
+  ]) {
+    assert.ok(
+      germanHardViolations({
+        kind: 'station-id',
+        text: `SUB/WAVE aus Zofingen in der ${phrase}.`,
+        context,
+      }).includes('invented-scenery'),
+      phrase,
+    );
+  }
+});
+
 test('grounded artist matching uses exact token boundaries', () => {
   const base = {
     kind: 'link' as const,
