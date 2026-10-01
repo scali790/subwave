@@ -56,6 +56,11 @@ function assertFinalOutput(row: { kind: string; text: string }) {
       /offiziell .*1999.*veröffentlicht|1999 offiziell veröffentlicht/i,
       'link upgraded catalogue year to release fact',
     );
+    assert.doesNotMatch(
+      text,
+      /\b(gemeint war|gemeint ist|so gewollt|sollte .* (?:klingen|wirken))\b/i,
+      'link invented creator intent',
+    );
   }
 }
 
