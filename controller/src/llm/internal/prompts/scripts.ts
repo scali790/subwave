@@ -467,6 +467,7 @@ export async function generateLink(args: any) {
       ? germanLinkPrompt({
           current: args.current,
           context: args.context,
+          clockIsAirTime: !!args.clockIsAirTime,
           recap: args.recap,
           recentOpeners: args.recentOpeners,
         })
@@ -483,6 +484,7 @@ export async function generateLink(args: any) {
     draft,
     context: args.context,
     current: args.current,
+    clockIsAirTime: !!args.clockIsAirTime,
   })).text;
 }
 
