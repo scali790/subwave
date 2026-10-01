@@ -246,7 +246,14 @@ function normalizedPhrase(value: string): string {
 function containsPhrase(text: string, phrase: string): boolean {
   const hay = normalizedPhrase(text);
   const needle = normalizedPhrase(phrase);
-  return !!needle && hay.includes(needle);
+  if (!needle) return false;
+  if (hay === needle) return true;
+
+  // Exact normalized TOKEN sequence only. A raw substring check incorrectly
+  // treated "Led Zeppeling" as containing "Led Zeppelin" because the correct
+  // artist name is a character prefix of the typo. Padding with spaces gives
+  // us token boundaries without regex-escaping arbitrary artist/title text.
+  return ` ${hay} `.includes(` ${needle} `);
 }
 
 export function germanHardViolations(args: {
