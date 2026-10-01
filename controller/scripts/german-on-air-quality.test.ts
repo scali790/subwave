@@ -176,6 +176,69 @@ test('hard gates catch the observed production regressions', () => {
   );
 });
 
+test('hard gates reject unsupported music facts but preserve subjective reaction', () => {
+  const base = {
+    kind: 'link' as const,
+    context,
+    current: {
+      title: 'Black Dog',
+      artist: 'Led Zeppelin',
+      album: 'Best Hits',
+      year: 1999,
+    },
+    clockIsAirTime: false,
+  };
+
+  assert.ok(
+    germanHardViolations({
+      ...base,
+      text: 'Black Dog von Led Zeppelin – die Gitarrenlinie und der Rhythmus tragen klar Blues und Rock n Roll.',
+    }).includes('unsupported-music-fact'),
+  );
+
+  assert.ok(
+    germanHardViolations({
+      ...base,
+      text: 'Black Dog von Led Zeppelin ist ein alter Klassiker mit zeitlosem Sound.',
+    }).includes('unsupported-music-fact'),
+  );
+
+  assert.deepEqual(
+    germanHardViolations({
+      ...base,
+      text: 'Black Dog von Led Zeppelin wirkt auf mich heute schwer und hat ordentlich Energie.',
+    }),
+    [],
+  );
+});
+
+test('station ID hard gate rejects invented concrete scenery but not abstract style', () => {
+  assert.ok(
+    germanHardViolations({
+      kind: 'station-id',
+      text: 'SUB/WAVE serviert klare Musik in der Vormittagssonne.',
+      context,
+    }).includes('invented-scenery'),
+  );
+
+  assert.ok(
+    germanHardViolations({
+      kind: 'station-id',
+      text: 'SUB/WAVE begleitet Sie von der Couch durch den Vormittag.',
+      context,
+    }).includes('invented-scenery'),
+  );
+
+  assert.deepEqual(
+    germanHardViolations({
+      kind: 'station-id',
+      text: 'SUB/WAVE aus Zofingen – klein, eigenwillig und heute ziemlich wach.',
+      context,
+    }),
+    [],
+  );
+});
+
 test('grounded artist matching uses exact token boundaries', () => {
   const base = {
     kind: 'link' as const,
