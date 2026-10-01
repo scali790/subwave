@@ -6,8 +6,8 @@
 //
 // The writer and reviewer are separate jobs:
 //   1. the writer gets one compact, German-native task prompt;
-//   2. the reviewer is pinned to the configured fallback leg (Family Radio:
-//      local Qwen) and may PASS, safely REWRITE from supplied facts, or DROP.
+//   2. the reviewer is pinned to whichever configured leg is local Ollama
+//      (Family Radio: Qwen) and may PASS, safely REWRITE, or DROP.
 //
 // Reviewer failure is fail-silent. Music continues; bad speech is cheaper than
 // a guessed repair.
@@ -267,8 +267,16 @@ export function germanHardViolations(args: {
       if (!new RegExp(`\\b${expectedHour}\\b`, 'i').test(text)) {
         out.push('hour-missing-or-changed');
       }
-      if (p.minute === 0 && /\b(vor|nach|halb|viertel)\b/i.test(text)) {
-        out.push('top-of-hour-offset');
+      if (p.minute === 0) {
+        const nextHour = bareHourWord(p.hour + 1);
+        const offset = new RegExp(
+          `\\b(?:kurz\\s+|viertel\\s+)?(?:vor|nach)\\s+${expectedHour}\\b`
+          + `|\\b${expectedHour}\\s+(?:vor|nach)\\s+${expectedHour}\\b`
+          + `|\\bhalb\\s+${nextHour}\\b`
+          + `|\\bviertel\\s+(?:vor\\s+${nextHour}|nach\\s+${expectedHour})\\b`,
+          'i',
+        );
+        if (offset.test(text)) out.push('top-of-hour-offset');
       }
       const expected = germanDaypartForHour(p.hour);
       const wrong = expected === 'Vormittag'
