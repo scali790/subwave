@@ -256,7 +256,7 @@ export function germanLinkReactionPrompt({
   return lines.join('\n');
 }
 
-function germanLinkReactionSystem(): string {
+export function germanLinkReactionSystem(): string {
   return [
     'Du schreibst genau einen subjektiven deutschen Reaktionssatz für einen Radiomoderator.',
     'Du kennst keine Musikfakten ausser einem eventuell ausdrücklich gelieferten Audio-Steer.',
