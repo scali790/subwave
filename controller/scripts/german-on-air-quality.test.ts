@@ -16,6 +16,7 @@ const {
   germanStationIdPrompt,
   germanTimeAnchor,
   isGermanPersona,
+  localOllamaReviewLeg,
 } = await import('../src/llm/internal/prompts/german-on-air.js');
 
 await settings.load();
@@ -58,6 +59,21 @@ test('German persona recognition is explicit and narrow', () => {
   assert.equal(isGermanPersona(persona), true);
   assert.equal(isGermanPersona({ language: 'English' }), false);
   assert.equal(isGermanPersona({}), false);
+});
+
+test('reviewer follows the local Ollama role and otherwise fails closed', () => {
+  assert.equal(localOllamaReviewLeg({
+    provider: 'openai-compatible',
+    fallback: { enabled: true, provider: 'ollama' },
+  }), 'fallback');
+  assert.equal(localOllamaReviewLeg({
+    provider: 'ollama',
+    fallback: { enabled: true, provider: 'openai-compatible' },
+  }), 'primary');
+  assert.equal(localOllamaReviewLeg({
+    provider: 'openai-compatible',
+    fallback: { enabled: true, provider: 'openai-compatible' },
+  }), null);
 });
 
 test('German clock semantics anchor 10:00 as exactly ten, not before ten', () => {
