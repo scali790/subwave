@@ -50,11 +50,16 @@ function clockParts(context: any): { hour: number; minute: number } | null {
   return { hour, minute };
 }
 
-function hourWord(hour: number): string {
+function bareHourWord(hour: number): string {
+  const h = ((hour % 24) + 24) % 24;
+  return HOUR_WORDS[h % 12];
+}
+
+function landmarkHourPhrase(hour: number): string {
   const h = ((hour % 24) + 24) % 24;
   if (h === 0) return 'Mitternacht';
   if (h === 12) return 'Mittag';
-  return HOUR_WORDS[h % 12];
+  return `${bareHourWord(h)} Uhr`;
 }
 
 export function germanDaypartForHour(hour: number): string {
@@ -75,12 +80,12 @@ export function germanTimeAnchor(context: any): string | null {
   const { hour, minute } = p;
   const daypart = germanDaypartForHour(hour).toLowerCase();
 
-  if (minute === 0) return `gerade ${hourWord(hour)} Uhr (${daypart})`;
-  if (minute <= 14) return `kurz nach ${hourWord(hour)} Uhr (${daypart})`;
-  if (minute <= 24) return `etwa Viertel nach ${hourWord(hour)} (${daypart})`;
-  if (minute <= 39) return `etwa halb ${hourWord(hour + 1)} (${daypart})`;
-  if (minute <= 49) return `etwa Viertel vor ${hourWord(hour + 1)} (${daypart})`;
-  return `kurz vor ${hourWord(hour + 1)} (${daypart})`;
+  if (minute === 0) return `gerade ${landmarkHourPhrase(hour)} (${daypart})`;
+  if (minute <= 14) return `kurz nach ${landmarkHourPhrase(hour)} (${daypart})`;
+  if (minute <= 24) return `etwa Viertel nach ${landmarkHourPhrase(hour)} (${daypart})`;
+  if (minute <= 39) return `etwa halb ${bareHourWord(hour + 1)} (${daypart})`;
+  if (minute <= 49) return `etwa Viertel vor ${landmarkHourPhrase(hour + 1)} (${daypart})`;
+  return `kurz vor ${landmarkHourPhrase(hour + 1)} (${daypart})`;
 }
 
 function germanDate(context: any): string | null {
