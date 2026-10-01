@@ -8,7 +8,10 @@ import {
   generateLink,
   generateStationId,
 } from '../src/llm/internal/prompts/scripts.js';
-import { reviewGermanOnAirText } from '../src/llm/internal/prompts/german-on-air.js';
+import {
+  germanHardViolations,
+  reviewGermanOnAirText,
+} from '../src/llm/internal/prompts/german-on-air.js';
 import { recentCalls } from '../src/llm/dj.js';
 
 function fail(message: string): never {
@@ -23,55 +26,26 @@ function assertGermanPersona(persona: any) {
   );
 }
 
-function assertFinalOutput(row: { kind: string; text: string }) {
+function assertFinalOutput(
+  row: { kind: 'hourly' | 'station-id' | 'link'; text: string },
+  gate: { context: any; current?: any; clockIsAirTime?: boolean },
+) {
   const text = String(row.text || '');
-  const lc = text.toLowerCase();
+  if (!text) return;
 
-  if (row.kind === 'hourly' && text) {
-    assert.match(text, /\bzehn\b/i, 'hourly output lost required hour');
-    assert.doesNotMatch(
-      text,
-      /\b(vor zehn|nach neun|halb zehn|viertel vor zehn)\b/i,
-      'hourly output changed 10:00 semantics',
-    );
-  }
+  const violations = germanHardViolations({
+    kind: row.kind,
+    text,
+    context: gate.context,
+    current: gate.current,
+    clockIsAirTime: gate.clockIsAirTime,
+  });
 
-  if (row.kind === 'station-id' && text) {
-    assert.ok(lc.includes('sub/wave'), 'station ID lost SUB/WAVE identity');
-    assert.doesNotMatch(
-      text,
-      /\b(?:(?:morgen|vormittag|mittag|nachmittag|abend)?sonne\w*|sonnig\w*|regen\w*|regnerisch\w*|wolke\w*|bewölkt\w*|schnee\w*|wind\w*|nebel\w*|sturm\w*|couch\w*|sofa\w*|küche\w*|\w*zimmer\w*|\w*brücke\w*|\w*(?:strasse|straße)\w*|park\b|garten\w*|balkon\w*|büro\w*|auto\b|zug\b)/i,
-      'station ID invented concrete scenery',
-    );
-  }
-
-  if (row.kind === 'link' && text) {
-    assert.doesNotMatch(
-      text,
-      /\b(vormittag|morgen|morgens|mittag|nachmittag|abend|abends|nacht|nachts)\b/i,
-      'link invented a daypart without verified air-time',
-    );
-    assert.doesNotMatch(
-      text,
-      /led zeppeling|led zeppelines/i,
-      'link mutated artist name',
-    );
-    assert.doesNotMatch(
-      text,
-      /offiziell .*1999.*veröffentlicht|1999 offiziell veröffentlicht/i,
-      'link upgraded catalogue year to release fact',
-    );
-    assert.doesNotMatch(
-      text,
-      /\b(gemeint war|gemeint ist|so gewollt|sollte .* (?:klingen|wirken))\b/i,
-      'link invented creator intent',
-    );
-    assert.doesNotMatch(
-      text,
-      /\b(?:gitarr\w*|riff\w*|rhythm\w*|beat\w*|drum\w*|schlagzeug\w*|bass\w*|gesang\w*|stimme\w*|vocal\w*|synth\w*|keyboard\w*|klavier\w*|melodie\w*|harmonie\w*|sound\w*|blues\w*|rock(?:\s+n\s+roll)?|jazz\w*|pop\w*|metal\w*|punk\w*|funk\w*|soul\w*|klassiker\w*|legendär\w*|ikonisch\w*|zeitlos\w*|welthit\w*|kult\w*)\b/i,
-      'link invented unsupported music facts',
-    );
-  }
+  assert.deepEqual(
+    violations,
+    [],
+    `${row.kind} final output violated hard gate: ${violations.join(', ')} :: ${text}`,
+  );
 }
 
 await settings.load();
@@ -126,7 +100,7 @@ const outputs: Array<{ kind: string; iteration: number; text: string }> = [];
 for (let i = 1; i <= 3; i++) {
   const text = await generateHourlyTime({ context: hourlyContext, persona });
   const row = { kind: 'hourly', iteration: i, text: String(text || '') };
-  assertFinalOutput(row);
+  assertFinalOutput(row, { context: hourlyContext });
   outputs.push(row);
   console.log(`FINAL hourly #${i} :: ${row.text || '[DROPPED]'}`);
 }
@@ -134,7 +108,7 @@ for (let i = 1; i <= 3; i++) {
 for (let i = 1; i <= 3; i++) {
   const text = await generateStationId({ context: identContext, persona });
   const row = { kind: 'station-id', iteration: i, text: String(text || '') };
-  assertFinalOutput(row);
+  assertFinalOutput(row, { context: identContext });
   outputs.push(row);
   console.log(`FINAL ident #${i} :: ${row.text || '[DROPPED]'}`);
 }
@@ -151,7 +125,11 @@ for (let i = 1; i <= 3; i++) {
     currentIsOnAir: true,
   });
   const row = { kind: 'link', iteration: i, text: String(text || '') };
-  assertFinalOutput(row);
+  assertFinalOutput(row, {
+    context: linkContext,
+    current: track,
+    clockIsAirTime: false,
+  });
   outputs.push(row);
   console.log(`FINAL link #${i} :: ${row.text || '[DROPPED]'}`);
 }
