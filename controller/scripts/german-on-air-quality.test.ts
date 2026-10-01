@@ -316,6 +316,32 @@ test('station ID hard gate rejects invented concrete scenery but not abstract st
   );
 });
 
+test('station ID hard gate rejects invented programme progress', () => {
+  for (const text of [
+    'SUB/WAVE startet jetzt das Daytime-Programm.',
+    'Bei SUB/WAVE beginnt gerade Daytime.',
+    'SUB/WAVE ist kurz vor dem Ende von Daytime.',
+  ]) {
+    assert.ok(
+      germanHardViolations({
+        kind: 'station-id',
+        text,
+        context,
+      }).includes('invented-programme-progress'),
+      text,
+    );
+  }
+
+  assert.deepEqual(
+    germanHardViolations({
+      kind: 'station-id',
+      text: 'SUB/WAVE aus Zofingen mit Daytime und wenig Gerede.',
+      context,
+    }),
+    [],
+  );
+});
+
 test('station scenery detector handles German linking-s compounds', () => {
   for (const phrase of [
     'Morgensonne',
