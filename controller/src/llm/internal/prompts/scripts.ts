@@ -16,6 +16,14 @@ import { announceLine, nextAnnounceForm } from '../../../broadcast/announce-line
 import * as library from '../../../music/library.js';
 import { contextSleeveNotesFor, releaseYearMentionEligible, selectSleeveNotes, stationHistoryNoteFor } from './sleeve-notes.js';
 import { stripRecapSpokenTags, stripSpokenTags } from './recent-speech.js';
+import {
+  germanHourlyPrompt,
+  germanLinkPrompt,
+  germanRadioSystem,
+  germanStationIdPrompt,
+  isGermanPersona,
+  reviewGermanOnAirText,
+} from './german-on-air.js';
 
 // The feel note appended to a track line (track-feel.ts) is a STEER, not copy.
 // Without this the model reads the label out — "high-energy" spoken flat is
@@ -225,12 +233,21 @@ export function stationIdPrompt({ context = null, persona = null }: any = {}) {
 
 export async function generateStationId({ recap = null, context = null, recentOpeners = null, persona = null }: any = {}) {
   const speaker = persona || settings.getEffectivePersona();
-  return djText({
-    system: djSystem(speaker),
-    prompt: decoratePrompt(stationIdPrompt({ context, persona: speaker }), { kind: 'station_id', recap, recentOpeners }),
+  const german = isGermanPersona(speaker);
+  const draft = await djText({
+    system: german ? germanRadioSystem(speaker) : djSystem(speaker),
+    prompt: german
+      ? germanStationIdPrompt({ context, persona: speaker, recap, recentOpeners })
+      : decoratePrompt(stationIdPrompt({ context, persona: speaker }), { kind: 'station_id', recap, recentOpeners }),
     temperature: 1.0, topP: 0.9, repeatPenalty: 1.25, seed: randomSeed(),
     kind: 'generateStationId',
   });
+  if (!german) return draft;
+  return (await reviewGermanOnAirText({
+    kind: 'station-id',
+    draft,
+    context,
+  })).text;
 }
 
 // --- Persona handoff at a show boundary ------------------------------------
@@ -442,15 +459,31 @@ export async function generateLink(args: any) {
       kind: 'generateAnnounceLinkFallback',
     });
   }
-  return djText({
-    system: djSystem(speaker),
-    prompt: linkPrompt({ ...args, persona: speaker }),
+
+  const german = isGermanPersona(speaker);
+  const draft = await djText({
+    system: german ? germanRadioSystem(speaker) : djSystem(speaker),
+    prompt: german
+      ? germanLinkPrompt({
+          current: args.current,
+          context: args.context,
+          recap: args.recap,
+          recentOpeners: args.recentOpeners,
+        })
+      : linkPrompt({ ...args, persona: speaker }),
     temperature: 0.95,
     topP: 0.92,
     repeatPenalty: 1.2,
     seed: randomSeed(),
     kind: 'generatePersonaLink',
   });
+  if (!german) return draft;
+  return (await reviewGermanOnAirText({
+    kind: 'link',
+    draft,
+    context: args.context,
+    current: args.current,
+  })).text;
 }
 
 // Stage C delivery packet for a Producer-selected skill segment. The Producer's
@@ -581,16 +614,35 @@ export function nextHourlyTimeClause(clock: any) {
 }
 
 export async function generateHourlyTime({ recap = null, context = null, recentOpeners = null, persona = null, showWelcome = false }: any = {}) {
-  const ctxLines = buildContextLines(context, { contextFields: SCRIPT_CONTEXT_FIELDS });
-  const timeClause = nextHourlyTimeClause(context?.clock);
-  ctxLines.push(`Task: a brief top-of-the-hour time check, in character. ${lengthPhrase('hourly', persona || undefined)}. ${timeClause}`);
-  if (showWelcome && context?.activeShow?.name) {
-    ctxLines.push(`This is the first spoken segment of the newly started show "${context.activeShow.name}". After the required time check, add one short, natural welcome to that show. The complete line may be two short sentences. Do not introduce yourself by name, mention an outgoing presenter, or imply the show began before this hour.`);
+  const speaker = persona || settings.getEffectivePersona();
+  const german = isGermanPersona(speaker);
+
+  let prompt: string;
+  if (german) {
+    prompt = germanHourlyPrompt({ context, recap, recentOpeners });
+    if (showWelcome && context?.activeShow?.name) {
+      prompt += `\n\nDies ist die erste Moderation der neu gestarteten Sendung "${context.activeShow.name}". Nach der korrekten Zeitansage darfst du die Sendung in einem zweiten kurzen Satz natürlich willkommen heissen. Stelle dich nicht erneut namentlich vor und erfinde keinen früheren Sendungsbeginn.`;
+    }
+  } else {
+    const ctxLines = buildContextLines(context, { contextFields: SCRIPT_CONTEXT_FIELDS });
+    const timeClause = nextHourlyTimeClause(context?.clock);
+    ctxLines.push(`Task: a brief top-of-the-hour time check, in character. ${lengthPhrase('hourly', speaker)}. ${timeClause}`);
+    if (showWelcome && context?.activeShow?.name) {
+      ctxLines.push(`This is the first spoken segment of the newly started show "${context.activeShow.name}". After the required time check, add one short, natural welcome to that show. The complete line may be two short sentences. Do not introduce yourself by name, mention an outgoing presenter, or imply the show began before this hour.`);
+    }
+    prompt = decoratePrompt(ctxLines.join('\n'), { kind: 'hourly', recap, recentOpeners });
   }
-  return djText({
-    system: djSystem(persona || undefined),
-    prompt: decoratePrompt(ctxLines.join('\n'), { kind: 'hourly', recap, recentOpeners }),
+
+  const draft = await djText({
+    system: german ? germanRadioSystem(speaker) : djSystem(speaker),
+    prompt,
     temperature: 0.9, topP: 0.95, repeatPenalty: 1.15, seed: randomSeed(),
     kind: 'generateHourlyTime',
   });
+  if (!german) return draft;
+  return (await reviewGermanOnAirText({
+    kind: 'hourly',
+    draft,
+    context,
+  })).text;
 }
