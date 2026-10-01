@@ -18,7 +18,11 @@ import { contextSleeveNotesFor, releaseYearMentionEligible, selectSleeveNotes, s
 import { stripRecapSpokenTags, stripSpokenTags } from './recent-speech.js';
 import {
   germanHourlyPrompt,
-  germanLinkPrompt,
+  germanLinkDraft,
+  germanLinkFactSpine,
+  germanLinkReactionContract,
+  germanLinkReactionPrompt,
+  germanLinkReactionSystem,
   germanRadioSystem,
   germanStationIdPrompt,
   isGermanPersona,
@@ -461,31 +465,59 @@ export async function generateLink(args: any) {
   }
 
   const german = isGermanPersona(speaker);
-  const draft = await djText({
-    system: german ? germanRadioSystem(speaker) : djSystem(speaker),
-    prompt: german
-      ? germanLinkPrompt({
-          current: args.current,
-          context: args.context,
-          clockIsAirTime: !!args.clockIsAirTime,
-          recap: args.recap,
-          recentOpeners: args.recentOpeners,
-        })
-      : linkPrompt({ ...args, persona: speaker }),
-    temperature: 0.95,
-    topP: 0.92,
-    repeatPenalty: 1.2,
-    seed: randomSeed(),
-    kind: 'generatePersonaLink',
-  });
-  if (!german) return draft;
-  return (await reviewGermanOnAirText({
+  if (!german) {
+    return djText({
+      system: djSystem(speaker),
+      prompt: linkPrompt({ ...args, persona: speaker }),
+      temperature: 0.95,
+      topP: 0.92,
+      repeatPenalty: 1.2,
+      seed: randomSeed(),
+      kind: 'generatePersonaLink',
+    });
+  }
+
+  // German Family Radio links split identity from creativity. The title/artist
+  // spine is deterministic code; the model writes only an optional explicitly
+  // subjective reaction. A failed/rewritten review falls back to the safe spine
+  // instead of airing a model-authored repair that can invent new facts.
+  const spine = germanLinkFactSpine(args.current);
+  if (!spine) return '';
+
+  let reaction = '';
+  try {
+    const candidate = await djText({
+      system: germanLinkReactionSystem(),
+      prompt: germanLinkReactionPrompt({
+        current: args.current,
+        recap: args.recap,
+      }),
+      temperature: 0.9,
+      topP: 0.9,
+      repeatPenalty: 1.1,
+      seed: randomSeed(),
+      maxOutputTokens: 96,
+      kind: 'generateGermanLinkReaction',
+    });
+    if (!germanLinkReactionContract(candidate).length) {
+      reaction = String(candidate || '').replace(/\s+/g, ' ').trim();
+    }
+  } catch {
+    reaction = '';
+  }
+
+  if (!reaction) return spine;
+
+  const draft = germanLinkDraft(args.current, reaction);
+  const reviewed = await reviewGermanOnAirText({
     kind: 'link',
     draft,
     context: args.context,
     current: args.current,
     clockIsAirTime: !!args.clockIsAirTime,
-  })).text;
+  });
+
+  return reviewed.verdict === 'pass' && reviewed.text ? reviewed.text : spine;
 }
 
 // Stage C delivery packet for a Producer-selected skill segment. The Producer's
