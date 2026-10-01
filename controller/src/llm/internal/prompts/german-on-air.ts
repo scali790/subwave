@@ -298,7 +298,15 @@ export async function reviewGermanOnAirText(args: {
       temperature: 0.1,
       maxOutputTokens: 320,
       kind: `onAirQuality.${args.kind}`,
-      leg: 'fallback',
+      // Family Radio uses local Ollama/Qwen as the editorial leg. Resolve by
+      // provider role rather than hard-coding "fallback", because Qwen may be
+      // promoted to primary after acceptance.
+      leg: settings.get().llm?.provider === 'ollama'
+        ? 'primary'
+        : settings.get().llm?.fallback?.enabled === true
+          && settings.get().llm?.fallback?.provider === 'ollama'
+          ? 'fallback'
+          : 'fallback',
     });
 
     const verdict = out?.verdict === 'pass' || out?.verdict === 'rewrite' ? out.verdict : 'drop';
