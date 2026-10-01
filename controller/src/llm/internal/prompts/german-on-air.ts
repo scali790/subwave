@@ -15,6 +15,7 @@
 import * as settings from '../../../settings.js';
 import { djText } from '../strategy/text.js';
 import { trackEraYear } from '../../../music/show-filter.js';
+import { trackFeel } from './track-feel.js';
 import { stripRecapSpokenTags, stripSpokenTags } from './recent-speech.js';
 import { logEvent } from '../../../observability/events.js';
 
@@ -198,6 +199,99 @@ export function germanStationIdPrompt({ context, persona, recap = null, recentOp
     'Wenn du die Tageszeit erwähnst, verwende nur die oben genannte Tageszeit.',
   ];
   return lines.join('\n') + antiRepeat(recap, recentOpeners);
+}
+
+function stableHash(input: string): number {
+  let hash = 2166136261;
+  for (let i = 0; i < input.length; i++) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+export function germanLinkFactSpine(current: any): string {
+  const title = String(current?.title || '').replace(/\s+/g, ' ').trim();
+  const artist = String(current?.artist || '').replace(/\s+/g, ' ').trim();
+  if (!title || !artist) return '';
+
+  const safeTitle = `„${title}“`;
+  const frames = [
+    `${safeTitle} von ${artist}.`,
+    `Das ist ${safeTitle} von ${artist}.`,
+    `Gerade läuft ${safeTitle} von ${artist}.`,
+    `Hier ist ${safeTitle} von ${artist}.`,
+  ];
+  return frames[stableHash(`${title}\u0000${artist}`) % frames.length];
+}
+
+export function germanLinkReactionPrompt({
+  current,
+  recap = null,
+}: any): string {
+  const feel = trackFeel(current);
+  const steer = feel === 'high-energy'
+    ? 'Verifizierter Audio-Steer: energiegeladen.'
+    : feel === 'low-key'
+      ? 'Verifizierter Audio-Steer: zurückhaltend.'
+      : 'Es wurde kein verifizierter Audio-Steer geliefert.';
+
+  const lines = [
+    'Aufgabe:',
+    'Schreibe genau einen kurzen, klar subjektiven Reaktionssatz des Moderators zum gerade laufenden Stück.',
+    'Beginne den Satz mit einer eindeutig persönlichen Form wie „Für mich“, „Mich“, „Ich“, „Mir“ oder „Auf mich“.',
+    'Der Satz darf Stimmung, persönliche Wirkung oder Humor ausdrücken.',
+    'Nenne oder paraphrasiere KEINE Fakten zum Stück: keinen Titel, Künstler, Album, Jahr, Genre, Instrument, Produktion, Text, Charts, Reputation, Musikgeschichte oder Künstlerabsicht.',
+    'Nenne keinen Ort, keine Uhrzeit, Tageszeit, Wochentag, Wetter- oder Raumszenerie.',
+    'Wenn keine konkrete Audioeigenschaft verifiziert ist, bleibe bei einer persönlichen Wirkung statt eine zu erfinden.',
+    steer,
+  ];
+  if (recap) {
+    lines.push(
+      '',
+      'Kürzlich gesendete Moderationen – Formulierungen nicht wiederholen:',
+      stripRecapSpokenTags(String(recap)),
+    );
+  }
+  return lines.join('\n');
+}
+
+function germanLinkReactionSystem(): string {
+  return [
+    'Du schreibst genau einen subjektiven deutschen Reaktionssatz für einen Radiomoderator.',
+    'Du kennst keine Musikfakten ausser einem eventuell ausdrücklich gelieferten Audio-Steer.',
+    'Erfinde deshalb keine objektiven Eigenschaften des Stücks.',
+    'Gib nur den sendefertigen Satz aus.',
+  ].join(' ');
+}
+
+export function germanLinkDraft(current: any, reaction: string): string {
+  const spine = germanLinkFactSpine(current);
+  const tail = String(reaction || '').replace(/\s+/g, ' ').trim();
+  return [spine, tail].filter(Boolean).join(' ');
+}
+
+export function germanLinkReactionContract(text: string): string[] {
+  const value = String(text || '').replace(/\s+/g, ' ').trim();
+  if (!value) return ['empty-reaction'];
+  const out: string[] = [];
+  if (!/^(?:für mich|mich|ich|mir|auf mich)\b/i.test(value)) {
+    out.push('reaction-not-explicitly-subjective');
+  }
+  if (DAYPART_WORDS.test(value)) out.push('reaction-context-leak');
+  if (/\b(?:montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag|zofingen|schweiz|sub\s*\/\s*wave)\b/i.test(value)) {
+    out.push('reaction-context-leak');
+  }
+  if (UNSUPPORTED_MUSIC_FACT_WORDS.test(normalizedPhrase(value))) {
+    out.push('reaction-music-fact');
+  }
+  if (UNSUPPORTED_SCENERY_WORDS.test(normalizedPhrase(value))) {
+    out.push('reaction-scenery');
+  }
+  if (/\b(?:album|katalog|jahr|19\d{2}|20\d{2}|veröffentlicht|erschienen|release|gemeint war|gemeint ist|so gewollt)\b/i.test(value)) {
+    out.push('reaction-fact-claim');
+  }
+  return [...new Set(out)];
 }
 
 export function germanLinkPrompt({
