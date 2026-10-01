@@ -170,6 +170,14 @@ const badLink = await reviewGermanOnAirText({
 console.log('REGRESSION grounded_link :: ' + JSON.stringify(badLink));
 assert.notEqual(badLink.verdict, 'pass', 'fact-drifting link was passed');
 
+for (const kind of ['hourly', 'station-id', 'link']) {
+  const aired = outputs.filter((row) => row.kind === kind && row.text).length;
+  assert.ok(
+    aired >= 2,
+    `expected at least 2/3 ${kind} outputs to survive quality review, got ${aired}`,
+  );
+}
+
 const qualityCalls = recentCalls
   .filter((c: any) => String(c.kind || '').startsWith('onAirQuality.'))
   .map((c: any) => ({
@@ -182,6 +190,13 @@ const qualityCalls = recentCalls
   }));
 
 assert.ok(qualityCalls.length >= 12, 'expected reviewer calls for 9 outputs + 3 regressions');
+assert.ok(
+  qualityCalls.every((c: any) =>
+    String(c.via || '').includes(':pinned')
+    && !/tool|recovery/i.test(String(c.via || ''))
+  ),
+  'quality reviewer must use one pinned free-text call, never tool/recovery',
+);
 
 console.log('');
 console.log('=== FINAL OUTPUTS ===');
