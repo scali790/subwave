@@ -288,7 +288,7 @@ export function germanLinkReactionContract(text: string): string[] {
   if (UNSUPPORTED_SCENERY_WORDS.test(normalizedPhrase(value))) {
     out.push('reaction-scenery');
   }
-  if (/\b(?:album|katalog|jahr|19\d{2}|20\d{2}|veröffentlicht|erschienen|release|gemeint war|gemeint ist|so gewollt)\b/i.test(value)) {
+  if (/\b(?:album|katalog|jahr|19\d{2}|20\d{2}|veröffentlicht|herausgegeben|erschienen|release|gemeint war|gemeint ist|so gewollt)\b/i.test(value)) {
     out.push('reaction-fact-claim');
   }
   return [...new Set(out)];
