@@ -176,6 +176,42 @@ test('hard gates catch the observed production regressions', () => {
   );
 });
 
+test('grounded artist matching uses exact token boundaries', () => {
+  const base = {
+    kind: 'link' as const,
+    context,
+    current: {
+      title: 'Black Dog',
+      artist: 'Led Zeppelin',
+      album: 'Best Hits',
+      year: 1999,
+    },
+    clockIsAirTime: false,
+  };
+
+  assert.deepEqual(
+    germanHardViolations({
+      ...base,
+      text: 'Black Dog von Led Zeppelin läuft jetzt.',
+    }),
+    [],
+  );
+
+  assert.ok(
+    germanHardViolations({
+      ...base,
+      text: 'Black Dog von Led Zeppeling läuft jetzt.',
+    }).includes('artist-name-missing-or-changed'),
+  );
+
+  assert.ok(
+    germanHardViolations({
+      ...base,
+      text: 'Black Dog von Led Zeppelins läuft jetzt.',
+    }).includes('artist-name-missing-or-changed'),
+  );
+});
+
 test('top-of-hour hard gate does not reject unrelated German prepositions', () => {
   assert.deepEqual(
     germanHardViolations({
