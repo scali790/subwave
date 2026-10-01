@@ -12,9 +12,8 @@
 // Reviewer failure is fail-silent. Music continues; bad speech is cheaper than
 // a guessed repair.
 
-import { z } from 'zod';
 import * as settings from '../../../settings.js';
-import { djObject } from '../strategy/object.js';
+import { djText } from '../strategy/text.js';
 import { trackEraYear } from '../../../music/show-filter.js';
 import { stripRecapSpokenTags, stripSpokenTags } from './recent-speech.js';
 import { logEvent } from '../../../observability/events.js';
@@ -233,11 +232,110 @@ export function germanLinkPrompt({
   return lines.join('\n') + antiRepeat(recap, recentOpeners);
 }
 
-const reviewSchema = z.object({
-  verdict: z.enum(['pass', 'rewrite', 'drop']),
-  text: z.string().max(700),
-  reason: z.string().max(240),
-});
+const DAYPART_WORDS = /\b(vormittag|morgen|morgens|mittag|nachmittag|abend|abends|nacht|nachts)\b/i;
+
+function normalizedPhrase(value: string): string {
+  return String(value || '')
+    .toLocaleLowerCase('de-CH')
+    .normalize('NFKC')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim()
+    .replace(/\s+/g, ' ');
+}
+
+function containsPhrase(text: string, phrase: string): boolean {
+  const hay = normalizedPhrase(text);
+  const needle = normalizedPhrase(phrase);
+  return !!needle && hay.includes(needle);
+}
+
+export function germanHardViolations(args: {
+  kind: 'hourly' | 'station-id' | 'link';
+  text: string;
+  context: any;
+  current?: any;
+  clockIsAirTime?: boolean;
+}): string[] {
+  const text = String(args.text || '').replace(/\s+/g, ' ').trim();
+  const out: string[] = [];
+  if (!text) return ['empty'];
+
+  if (args.kind === 'hourly') {
+    const p = clockParts(args.context);
+    if (p) {
+      const expectedHour = bareHourWord(p.hour);
+      if (!new RegExp(`\\b${expectedHour}\\b`, 'i').test(text)) {
+        out.push('hour-missing-or-changed');
+      }
+      if (p.minute === 0 && /\b(vor|nach|halb|viertel)\b/i.test(text)) {
+        out.push('top-of-hour-offset');
+      }
+      const expected = germanDaypartForHour(p.hour);
+      const wrong = expected === 'Vormittag'
+        ? /\b(mittag|nachmittag|abend|abends|nacht|nachts)\b/i
+        : expected === 'Mittag'
+          ? /\b(vormittag|morgen|morgens|nachmittag|abend|abends|nacht|nachts)\b/i
+          : expected === 'Nachmittag'
+            ? /\b(vormittag|morgen|morgens|mittag|abend|abends|nacht|nachts)\b/i
+            : expected === 'Abend'
+              ? /\b(vormittag|morgen|morgens|mittag|nachmittag|nacht|nachts)\b/i
+              : /\b(vormittag|morgen|morgens|mittag|nachmittag|abend|abends)\b/i;
+      if (wrong.test(text)) out.push('wrong-daypart');
+    }
+  }
+
+  if (args.kind === 'station-id') {
+    const station = String(settings.get().station || '').trim();
+    if (station && !containsPhrase(text, station)) out.push('station-name-missing-or-changed');
+  }
+
+  if (args.kind === 'link') {
+    if (!args.clockIsAirTime && DAYPART_WORDS.test(text)) {
+      out.push('daypart-without-airtime');
+    }
+
+    const title = String(args.current?.title || '').trim();
+    const artist = String(args.current?.artist || '').trim();
+    if (title && !containsPhrase(text, title)) out.push('track-title-missing-or-changed');
+    if (artist && !containsPhrase(text, artist)) out.push('artist-name-missing-or-changed');
+
+    const year = args.current ? trackEraYear(args.current) : null;
+    if (year && new RegExp(`\\b${year}\\b`).test(text)
+      && /\b(offiziell|original|ursprünglich|erstveröffentlicht|erstveröffentlichung|veröffentlicht|erschienen|release)\b/i.test(text)) {
+      out.push('catalogue-year-upgraded');
+    }
+  }
+
+  return [...new Set(out)];
+}
+
+export function parseGermanQualityDecision(raw: string): {
+  verdict: 'pass' | 'rewrite' | 'drop';
+  text: string;
+} {
+  const clean = String(raw || '').replace(/\r/g, '').trim();
+  if (!clean) return { verdict: 'drop', text: '' };
+
+  const firstBreak = clean.indexOf('\n');
+  const head = (firstBreak === -1 ? clean : clean.slice(0, firstBreak)).trim();
+  const upper = head.toUpperCase();
+
+  if (upper === 'PASS' || upper.startsWith('PASS ')) {
+    return { verdict: 'pass', text: '' };
+  }
+  if (upper === 'DROP' || upper.startsWith('DROP ')) {
+    return { verdict: 'drop', text: '' };
+  }
+  if (upper === 'REWRITE' || upper.startsWith('REWRITE:')) {
+    let text = firstBreak === -1
+      ? head.replace(/^REWRITE\s*:?\s*/i, '')
+      : clean.slice(firstBreak + 1).trim();
+    text = text.replace(/^["“«]|["”»]$/g, '').trim();
+    return text ? { verdict: 'rewrite', text } : { verdict: 'drop', text: '' };
+  }
+
+  return { verdict: 'drop', text: '' };
+}
 
 function qualityFacts({
   kind,
@@ -300,6 +398,34 @@ export function germanQualityReviewPrompt(args: {
     '- DROP, wenn der Text Wortsalat, ein unverständliches Fragment oder ohne neue Annahmen nicht sicher reparierbar ist.',
     '- Falsche Uhrzeit, falscher Wochentag/Tageszeit, erfundener Ort, veränderter Künstler-/Songname oder aufgewertete Katalogangaben sind niemals PASS.',
     '- Stil nicht glätten, nur weil er eigenwillig ist. Das ist eine Qualitätskontrolle, keine Geschmackszensur.',
+    ...(germanHardViolations({
+      kind: args.kind as 'hourly' | 'station-id' | 'link',
+      text: args.draft,
+      context: args.context,
+      current: args.current,
+      clockIsAirTime: args.clockIsAirTime,
+    }).length
+      ? [
+          '',
+          'DETERMINISTISCHE HARD-GATE-VERLETZUNGEN:',
+          ...germanHardViolations({
+            kind: args.kind as 'hourly' | 'station-id' | 'link',
+            text: args.draft,
+            context: args.context,
+            current: args.current,
+            clockIsAirTime: args.clockIsAirTime,
+          }).map((v) => `- ${v}`),
+          'PASS ist für diesen Entwurf verboten. Repariere sicher mit REWRITE oder antworte DROP.',
+        ]
+      : []),
+    '',
+    'ANTWORTFORMAT — exakt eines davon, ohne Begründung:',
+    'PASS',
+    'oder',
+    'DROP',
+    'oder',
+    'REWRITE',
+    '<vollständiger sendefertiger Text>',
   ].join('\n');
 }
 
@@ -325,6 +451,8 @@ export async function reviewGermanOnAirText(args: {
   const draft = String(args.draft || '').replace(/\s+/g, ' ').trim();
   if (!draft) return { text: '', verdict: 'drop', reason: 'empty draft' };
 
+  const hardBefore = germanHardViolations({ ...args, text: draft });
+
   try {
     const leg = localOllamaReviewLeg();
     if (!leg) {
@@ -338,38 +466,54 @@ export async function reviewGermanOnAirText(args: {
       return { text: '', verdict: 'drop', reason };
     }
 
-    const out = await djObject({
+    const raw = await djText({
       system: REVIEW_SYSTEM,
       prompt: germanQualityReviewPrompt({ ...args, draft }),
-      schema: reviewSchema,
       temperature: 0.1,
-      maxOutputTokens: 320,
+      topP: 0.8,
+      repeatPenalty: 1.0,
+      maxOutputTokens: 220,
       kind: `onAirQuality.${args.kind}`,
-      // Family Radio uses local Ollama/Qwen as the editorial leg. Resolve by
-      // provider role rather than hard-coding "fallback", because Qwen may be
-      // promoted to primary after acceptance.
       leg,
     });
 
-    const verdict = out?.verdict === 'pass' || out?.verdict === 'rewrite' ? out.verdict : 'drop';
-    const text = verdict === 'pass'
+    const decision = parseGermanQualityDecision(raw);
+    let text = decision.verdict === 'pass'
       ? draft
-      : verdict === 'rewrite'
-        ? String(out?.text || '').replace(/\s+/g, ' ').trim()
+      : decision.verdict === 'rewrite'
+        ? String(decision.text || '').replace(/\s+/g, ' ').trim()
         : '';
-    const finalVerdict = text ? verdict : 'drop';
-    const reason = String(out?.reason || '').trim().slice(0, 240);
+
+    let verdict: 'pass' | 'rewrite' | 'drop' = text ? decision.verdict : 'drop';
+    const hardAfter = text ? germanHardViolations({ ...args, text }) : [];
+
+    // The reviewer may suggest a repair, but it never outranks deterministic
+    // facts. A hard violation surviving PASS/REWRITE fails silent.
+    if (hardAfter.length) {
+      text = '';
+      verdict = 'drop';
+    }
+
+    const reason = hardAfter.length
+      ? `hard gate after review: ${hardAfter.join(', ')}`
+      : verdict === 'rewrite'
+        ? `reviewer rewrite${hardBefore.length ? ` after: ${hardBefore.join(', ')}` : ''}`
+        : verdict === 'pass'
+          ? 'reviewer pass'
+          : hardBefore.length
+            ? `reviewer drop after: ${hardBefore.join(', ')}`
+            : 'reviewer drop';
+
     logEvent('speech.quality', {
       kind: args.kind,
-      verdict: finalVerdict,
+      verdict,
       reason,
       reviewer: 'local-ollama',
+      hardBefore,
+      hardAfter,
     });
-    return {
-      text,
-      verdict: finalVerdict,
-      reason,
-    };
+
+    return { text, verdict, reason };
   } catch (err: any) {
     const reason = `review failed: ${String(err?.message || err).slice(0, 180)}`;
     logEvent('speech.quality', {
@@ -377,6 +521,7 @@ export async function reviewGermanOnAirText(args: {
       verdict: 'drop',
       reason,
       reviewer: 'local-ollama',
+      hardBefore,
     });
     return {
       text: '',
