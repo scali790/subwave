@@ -182,6 +182,14 @@ const badScenery = await reviewGermanOnAirText({
 console.log('REGRESSION invented_scenery :: ' + JSON.stringify(badScenery));
 assert.notEqual(badScenery.verdict, 'pass', 'invented station scenery was passed');
 
+const badProgress = await reviewGermanOnAirText({
+  kind: 'station-id',
+  draft: 'Willkommen bei SUB/WAVE aus Zofingen, wo wir jetzt das Daytime-Programm starten.',
+  context: identContext,
+});
+console.log('REGRESSION invented_programme_progress :: ' + JSON.stringify(badProgress));
+assert.notEqual(badProgress.verdict, 'pass', 'invented programme progress was passed');
+
 for (const kind of ['hourly', 'station-id', 'link']) {
   const aired = outputs.filter((row) => row.kind === kind && row.text).length;
   assert.ok(
@@ -211,8 +219,8 @@ const qualityCalls = recentCalls
   }));
 
 assert.ok(
-  qualityCalls.length >= 11,
-  'expected reviewer calls for 6 hourly/ident outputs + 5 regressions; link reactions may fail closed before review',
+  qualityCalls.length >= 12,
+  'expected reviewer calls for 6 hourly/ident outputs + 6 regressions; link reactions may fail closed before review',
 );
 assert.ok(
   qualityCalls.every((c: any) =>
