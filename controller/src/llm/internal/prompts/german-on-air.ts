@@ -17,6 +17,7 @@ import * as settings from '../../../settings.js';
 import { djObject } from '../strategy/object.js';
 import { trackEraYear } from '../../../music/show-filter.js';
 import { stripRecapSpokenTags, stripSpokenTags } from './recent-speech.js';
+import { logEvent } from '../../../observability/events.js';
 
 const WEEKDAYS: Record<string, string> = {
   Sunday: 'Sonntag', Monday: 'Montag', Tuesday: 'Dienstag',
@@ -92,13 +93,19 @@ function germanDate(context: any): string | null {
   return [day, Number.isFinite(dom) && dom > 0 ? `${dom}.` : '', month].filter(Boolean).join(' ');
 }
 
-function verifiedMomentLines(context: any, { includeExactClock = false }: { includeExactClock?: boolean } = {}): string[] {
+function verifiedMomentLines(
+  context: any,
+  {
+    includeExactClock = false,
+    includeDaypart = true,
+  }: { includeExactClock?: boolean; includeDaypart?: boolean } = {},
+): string[] {
   const out: string[] = [];
   const date = germanDate(context);
   if (date) out.push(`- Datum: ${date}.`);
   const p = clockParts(context);
   if (p) {
-    out.push(`- Tageszeit: ${germanDaypartForHour(p.hour)}.`);
+    if (includeDaypart) out.push(`- Tageszeit: ${germanDaypartForHour(p.hour)}.`);
     if (includeExactClock) {
       out.push(`- Exakte lokale Uhrzeit: ${String(p.hour).padStart(2, '0')}:${String(p.minute).padStart(2, '0')} Uhr.`);
     }
@@ -192,6 +199,7 @@ export function germanStationIdPrompt({ context, persona, recap = null, recentOp
 export function germanLinkPrompt({
   current,
   context,
+  clockIsAirTime = false,
   recap = null,
   recentOpeners = null,
 }: any): string {
@@ -201,7 +209,7 @@ export function germanLinkPrompt({
   const year = trackEraYear(current);
   const lines = [
     'Verifizierte Fakten:',
-    ...verifiedMomentLines(context),
+    ...verifiedMomentLines(context, { includeDaypart: clockIsAirTime }),
     ...(title ? [`- Jetzt läuft: "${title}"${artist ? ` von ${artist}` : ''}.`] : []),
     ...(album ? [`- Katalog-Albumangabe: "${album}".`] : []),
     ...(year ? [`- Katalog-Jahresangabe: ${year}. Diese Angabe ist kein Beleg für die Original- oder Erstveröffentlichung des Songs.`] : []),
@@ -212,7 +220,9 @@ export function germanLinkPrompt({
     'Erfinde keine Instrumentierung, Produktion, Lyrics, Charts, Bedeutung, Reputation, Musikgeschichte oder Credits.',
     'Werte Katalogangaben nicht auf: aus einer Jahresangabe wird keine Behauptung über die offizielle oder ursprüngliche Veröffentlichung.',
     'Erfinde kein Wetter und keine lokale oder zeitliche Szenerie.',
-    'Wenn du Tag oder Tageszeit erwähnst, müssen sie exakt zum verifizierten Kontext passen.',
+    clockIsAirTime
+      ? 'Wenn du Tag oder Tageszeit erwähnst, müssen sie exakt zum verifizierten Kontext passen.'
+      : 'Für diesen Link wurde keine verlässliche Air-Time geliefert. Behaupte keine konkrete Uhrzeit oder Tageszeit.',
     'Schreibe Künstler- und Songnamen exakt wie oben.',
   ];
   return lines.join('\n') + antiRepeat(recap, recentOpeners);
@@ -228,24 +238,36 @@ function qualityFacts({
   kind,
   context,
   current = null,
+  clockIsAirTime = false,
 }: {
   kind: string;
   context: any;
   current?: any;
+  clockIsAirTime?: boolean;
 }): string {
   const s = settings.get();
   const station = String(s.station || '').trim();
   const location = String(settings.resolveOnAirLocation(s) || '').trim();
   const title = String(current?.title || '').trim();
   const artist = String(current?.artist || '').trim();
+  const album = String(current?.album || '').trim();
+  const year = current ? trackEraYear(current) : null;
   const lines = [
-    ...verifiedMomentLines(context, { includeExactClock: kind === 'hourly' }),
+    ...verifiedMomentLines(context, {
+      includeExactClock: kind === 'hourly',
+      includeDaypart: kind !== 'link' || clockIsAirTime,
+    }),
     ...(station ? [`- Sendername: ${station}.`] : []),
     ...(location ? [`- Verifizierter Standort: ${location}.`] : []),
     ...(kind === 'hourly' && germanTimeAnchor(context)
       ? [`- Verbindliche Zeitbedeutung: "${germanTimeAnchor(context)}".`] : []),
     ...(title ? [`- Songtitel: "${title}".`] : []),
     ...(artist ? [`- Künstlername: ${artist}.`] : []),
+    ...(album ? [`- Katalog-Albumangabe: "${album}".`] : []),
+    ...(year ? [`- Katalog-Jahresangabe: ${year}; kein Beleg für Original- oder Erstveröffentlichung.`] : []),
+    ...(kind === 'link' && !clockIsAirTime
+      ? ['- Keine verifizierte Air-Time für diesen Link: keine konkrete Uhrzeit oder Tageszeit behaupten.']
+      : []),
   ];
   return lines.join('\n');
 }
@@ -255,6 +277,7 @@ export function germanQualityReviewPrompt(args: {
   draft: string;
   context: any;
   current?: any;
+  clockIsAirTime?: boolean;
 }): string {
   return [
     `Segmenttyp: ${args.kind}`,
@@ -286,6 +309,7 @@ export async function reviewGermanOnAirText(args: {
   draft: string;
   context: any;
   current?: any;
+  clockIsAirTime?: boolean;
 }): Promise<{ text: string; verdict: 'pass' | 'rewrite' | 'drop'; reason: string }> {
   const draft = String(args.draft || '').replace(/\s+/g, ' ').trim();
   if (!draft) return { text: '', verdict: 'drop', reason: 'empty draft' };
@@ -315,16 +339,31 @@ export async function reviewGermanOnAirText(args: {
       : verdict === 'rewrite'
         ? String(out?.text || '').replace(/\s+/g, ' ').trim()
         : '';
+    const finalVerdict = text ? verdict : 'drop';
+    const reason = String(out?.reason || '').trim().slice(0, 240);
+    logEvent('speech.quality', {
+      kind: args.kind,
+      verdict: finalVerdict,
+      reason,
+      reviewer: 'local-ollama',
+    });
     return {
       text,
-      verdict: text ? verdict : 'drop',
-      reason: String(out?.reason || '').trim().slice(0, 240),
+      verdict: finalVerdict,
+      reason,
     };
   } catch (err: any) {
+    const reason = `review failed: ${String(err?.message || err).slice(0, 180)}`;
+    logEvent('speech.quality', {
+      kind: args.kind,
+      verdict: 'drop',
+      reason,
+      reviewer: 'local-ollama',
+    });
     return {
       text: '',
       verdict: 'drop',
-      reason: `review failed: ${String(err?.message || err).slice(0, 180)}`,
+      reason,
     };
   }
 }
