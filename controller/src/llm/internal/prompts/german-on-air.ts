@@ -197,6 +197,7 @@ export function germanStationIdPrompt({ context, persona, recap = null, recentOp
     'Erfinde keine Raum-, Strassen-, Brücken-, Stadt-, Wetter- oder sonstige Szenerie.',
     'Wenn du einen Ort nennst, verwende nur den verifizierten Standort.',
     'Wenn du die Tageszeit erwähnst, verwende nur die oben genannte Tageszeit.',
+    'Behaupte nicht, dass die aktuelle Sendung gerade beginnt, startet, endet oder kurz vor dem Ende steht, sofern das nicht ausdrücklich als verifizierter Kontext geliefert wurde.',
   ];
   return lines.join('\n') + antiRepeat(recap, recentOpeners);
 }
@@ -334,6 +335,9 @@ const UNSUPPORTED_MUSIC_FACT_WORDS =
 const UNSUPPORTED_SCENERY_WORDS =
   /\b(?:(?:morgen|vormittag|mittag|nachmittag|abend)s?sonne\w*|sonnig\w*|regen\w*|regnerisch\w*|wolke\w*|bewölkt\w*|schnee\w*|wind\w*|nebel\w*|sturm\w*|couch\w*|sofa\w*|küche\w*|\w*zimmer\w*|\w*brücke\w*|\w*(?:strasse|straße)\w*|park\b|garten\w*|balkon\w*|büro\w*|auto\b|zug\b)/i;
 
+const PROGRAMME_PROGRESS_WORDS =
+  /\b(?:startet|starten|gestartet|beginnt|beginnen|begonnen|auftakt|anfang|endet|enden|beendet|schluss|letzte\s+stunde|letzten\s+minuten|geht\s+zu\s+ende|kurz\s+vor\s+dem\s+ende)\b/i;
+
 function normalizedPhrase(value: string): string {
   return String(value || '')
     .toLocaleLowerCase('de-CH')
@@ -414,6 +418,9 @@ export function germanHardViolations(args: {
     if (station && !containsPhrase(text, station)) out.push('station-name-missing-or-changed');
     if (UNSUPPORTED_SCENERY_WORDS.test(normalizedPhrase(text))) {
       out.push('invented-scenery');
+    }
+    if (PROGRAMME_PROGRESS_WORDS.test(normalizedPhrase(text))) {
+      out.push('invented-programme-progress');
     }
   }
 
