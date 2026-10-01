@@ -322,6 +322,11 @@ export function isUpstreamOverloaded(err: ErrorLike | null | undefined): boolean
   if (!err) return false;
   err = unwrapSdkError(err);
   const status = err.statusCode ?? err.status ?? err.cause?.statusCode ?? err.cause?.status;
+  // Internal gateways may use 424 Failed Dependency to say "the local
+  // gateway is healthy but its upstream could not satisfy this request within
+  // the caller's bounded budget". Treat that as a backup-leg condition, not a
+  // same-leg retry. Family Radio's NIM gateway uses this exact contract.
+  if (status === 424) return true;
   if (status === 529) return true; // Anthropic "Overloaded" — outside TRANSIENT_STATUS
   const msg = String(err.message || err.cause?.message || '');
   return UPSTREAM_OVERLOAD_RE.test(msg);
