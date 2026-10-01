@@ -38,6 +38,11 @@ function assertFinalOutput(row: { kind: string; text: string }) {
 
   if (row.kind === 'station-id' && text) {
     assert.ok(lc.includes('sub/wave'), 'station ID lost SUB/WAVE identity');
+    assert.doesNotMatch(
+      text,
+      /\b(?:(?:morgen|vormittag|mittag|nachmittag|abend)?sonne\w*|sonnig\w*|regen\w*|regnerisch\w*|wolke\w*|bewölkt\w*|schnee\w*|wind\w*|nebel\w*|sturm\w*|couch\w*|sofa\w*|küche\w*|\w*zimmer\w*|\w*brücke\w*|\w*(?:strasse|straße)\w*|park\b|garten\w*|balkon\w*|büro\w*|auto\b|zug\b)/i,
+      'station ID invented concrete scenery',
+    );
   }
 
   if (row.kind === 'link' && text) {
@@ -60,6 +65,11 @@ function assertFinalOutput(row: { kind: string; text: string }) {
       text,
       /\b(gemeint war|gemeint ist|so gewollt|sollte .* (?:klingen|wirken))\b/i,
       'link invented creator intent',
+    );
+    assert.doesNotMatch(
+      text,
+      /\b(?:gitarr\w*|riff\w*|rhythm\w*|beat\w*|drum\w*|schlagzeug\w*|bass\w*|gesang\w*|stimme\w*|vocal\w*|synth\w*|keyboard\w*|klavier\w*|melodie\w*|harmonie\w*|sound\w*|blues\w*|rock(?:\s+n\s+roll)?|jazz\w*|pop\w*|metal\w*|punk\w*|funk\w*|soul\w*|klassiker\w*|legendär\w*|ikonisch\w*|zeitlos\w*|welthit\w*|kult\w*)\b/i,
+      'link invented unsupported music facts',
     );
   }
 }
@@ -175,6 +185,24 @@ const badLink = await reviewGermanOnAirText({
 console.log('REGRESSION grounded_link :: ' + JSON.stringify(badLink));
 assert.notEqual(badLink.verdict, 'pass', 'fact-drifting link was passed');
 
+const badMusicFacts = await reviewGermanOnAirText({
+  kind: 'link',
+  draft: 'Black Dog von Led Zeppelin ist ein alter Klassiker mit einer markanten Gitarrenlinie und viel Blues und Rock n Roll.',
+  context: linkContext,
+  current: track,
+  clockIsAirTime: false,
+});
+console.log('REGRESSION unsupported_music_facts :: ' + JSON.stringify(badMusicFacts));
+assert.notEqual(badMusicFacts.verdict, 'pass', 'unsupported music facts were passed');
+
+const badScenery = await reviewGermanOnAirText({
+  kind: 'station-id',
+  draft: 'SUB/WAVE aus Zofingen serviert klare Musik in der Vormittagssonne.',
+  context: identContext,
+});
+console.log('REGRESSION invented_scenery :: ' + JSON.stringify(badScenery));
+assert.notEqual(badScenery.verdict, 'pass', 'invented station scenery was passed');
+
 for (const kind of ['hourly', 'station-id', 'link']) {
   const aired = outputs.filter((row) => row.kind === kind && row.text).length;
   assert.ok(
@@ -194,7 +222,7 @@ const qualityCalls = recentCalls
     response: c.response,
   }));
 
-assert.ok(qualityCalls.length >= 12, 'expected reviewer calls for 9 outputs + 3 regressions');
+assert.ok(qualityCalls.length >= 14, 'expected reviewer calls for 9 outputs + 5 regressions');
 assert.ok(
   qualityCalls.every((c: any) =>
     String(c.via || '').includes(':pinned')
