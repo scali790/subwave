@@ -329,7 +329,7 @@ export function germanLinkPrompt({
 const DAYPART_WORDS = /\b(vormittag|morgen|morgens|mittag|nachmittag|abend|abends|nacht|nachts)\b/i;
 
 const UNSUPPORTED_MUSIC_FACT_WORDS =
-  /\b(?:gitarr\w*|riff\w*|rhythm\w*|beat\w*|drum\w*|schlagzeug\w*|bass\w*|gesang\w*|stimme\w*|vocal\w*|synth\w*|keyboard\w*|klavier\w*|melodie\w*|harmonie\w*|sound\w*|blues\w*|rock(?:\s+n\s+roll)?|jazz\w*|pop\w*|metal\w*|punk\w*|funk\w*|soul\w*|klassiker\w*|legendär\w*|ikonisch\w*|zeitlos\w*|welthit\w*|kult\w*)\b/i;
+  /\b(?:gitarr\w*|riff\w*|rhythm\w*|beat\w*|drum\w*|schlagzeug\w*|bass\w*|gesang\w*|stimme\w*|vocal\w*|synth\w*|keyboard\w*|klavier\w*|melodie\w*|harmonie\w*|sound\w*|blues\w*|rock\w*(?:\s+n\s+roll)?|jazz\w*|pop\w*|metal\w*|punk\w*|funk\w*|soul\w*|klassiker\w*|legendär\w*|ikonisch\w*|zeitlos\w*|welthit\w*|kult\w*)\b/i;
 
 const UNSUPPORTED_SCENERY_WORDS =
   /\b(?:(?:morgen|vormittag|mittag|nachmittag|abend)s?sonne\w*|sonnig\w*|regen\w*|regnerisch\w*|wolke\w*|bewölkt\w*|schnee\w*|wind\w*|nebel\w*|sturm\w*|couch\w*|sofa\w*|küche\w*|\w*zimmer\w*|\w*brücke\w*|\w*(?:strasse|straße)\w*|park\b|garten\w*|balkon\w*|büro\w*|auto\b|zug\b)/i;
@@ -429,7 +429,7 @@ export function germanHardViolations(args: {
 
     const year = args.current ? trackEraYear(args.current) : null;
     if (year && new RegExp(`\\b${year}\\b`).test(text)
-      && /\b(offiziell|original|ursprünglich|erstveröffentlicht|erstveröffentlichung|veröffentlicht|erschienen|release)\b/i.test(text)) {
+      && /\b(offiziell|original|ursprünglich|erstveröffentlicht|erstveröffentlichung|veröffentlicht|herausgegeben|erschienen|release)\b/i.test(text)) {
       out.push('catalogue-year-upgraded');
     }
     if (/\b(gemeint war|gemeint ist|so gewollt|von .* gewollt|sollte .* (?:klingen|wirken))\b/i.test(text)) {
