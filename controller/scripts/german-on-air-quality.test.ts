@@ -11,12 +11,14 @@ const {
   germanDaypartForHour,
   germanHourlyPrompt,
   germanLinkPrompt,
+  germanHardViolations,
   germanQualityReviewPrompt,
   germanRadioSystem,
   germanStationIdPrompt,
   germanTimeAnchor,
   isGermanPersona,
   localOllamaReviewLeg,
+  parseGermanQualityDecision,
 } = await import('../src/llm/internal/prompts/german-on-air.js');
 
 await settings.load();
@@ -125,6 +127,71 @@ test('German link treats catalogue year as non-authoritative release metadata', 
   assert.match(prompt, /kein Beleg für die Original- oder Erstveröffentlichung/);
   assert.match(prompt, /Schreibe Künstler- und Songnamen exakt wie oben/);
   assert.doesNotMatch(prompt, /Verified Facts:|Track on air:|Rules:/);
+});
+
+test('hard gates catch the observed production regressions', () => {
+  assert.deepEqual(
+    germanHardViolations({
+      kind: 'hourly',
+      text: 'Zehn vor zehn morgens.',
+      context,
+    }),
+    ['top-of-hour-offset'],
+  );
+
+  assert.deepEqual(
+    germanHardViolations({
+      kind: 'link',
+      text: 'Am Donnerstag Abend läuft Black Dog von Led Zeppeling, offiziell 1999 veröffentlicht.',
+      context,
+      current: {
+        title: 'Black Dog',
+        artist: 'Led Zeppelin',
+        album: 'Best Hits',
+        year: 1999,
+      },
+      clockIsAirTime: false,
+    }).sort(),
+    [
+      'artist-name-missing-or-changed',
+      'catalogue-year-upgraded',
+      'daypart-without-airtime',
+    ].sort(),
+  );
+});
+
+test('top-of-hour hard gate does not reject unrelated German prepositions', () => {
+  assert.deepEqual(
+    germanHardViolations({
+      kind: 'hourly',
+      text: 'Es ist genau zehn Uhr, und nach diesem Satz geht die Musik weiter.',
+      context,
+    }),
+    [],
+  );
+});
+
+test('compact reviewer decision format parses without structured-output tooling', () => {
+  assert.deepEqual(parseGermanQualityDecision('PASS'), {
+    verdict: 'pass',
+    text: '',
+  });
+  assert.deepEqual(parseGermanQualityDecision('DROP'), {
+    verdict: 'drop',
+    text: '',
+  });
+  assert.deepEqual(parseGermanQualityDecision('REWRITE\nHier ist SUB/WAVE aus Zofingen.'), {
+    verdict: 'rewrite',
+    text: 'Hier ist SUB/WAVE aus Zofingen.',
+  });
+  assert.deepEqual(parseGermanQualityDecision('REWRITE: Hier ist SUB/WAVE aus Zofingen.'), {
+    verdict: 'rewrite',
+    text: 'Hier ist SUB/WAVE aus Zofingen.',
+  });
+  assert.deepEqual(parseGermanQualityDecision('irgendetwas anderes'), {
+    verdict: 'drop',
+    text: '',
+  });
 });
 
 test('quality review is an editorial gate, not a style flattener', () => {
