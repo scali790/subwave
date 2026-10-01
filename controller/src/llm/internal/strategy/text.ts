@@ -34,6 +34,10 @@ export async function djText({
   // Retry-After sleep short and prevent a ghost retry after the abort (mirrors
   // djAgent's threading, PR #751 review).
   signal = undefined,
+  // Optional exact leg selection. Used by bounded editorial/review consumers
+  // that must stay on a specific local model and must not cross-failover.
+  // Omitted everywhere else, preserving the normal primary→fallback path.
+  leg = undefined,
 }: any): Promise<string> {
   return withFailover(
     kind,
@@ -77,5 +81,6 @@ export async function djText({
         extra: { system, user: prompt, response: out },
       };
     },
+    leg,
   );
 }
