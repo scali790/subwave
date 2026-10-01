@@ -145,6 +145,16 @@ test('German link reaction contract keeps only explicitly subjective copy', () =
   );
 
   assert.ok(
+    germanLinkReactionContract('Für mich ist das gerade eine Rocknummer.')
+      .includes('reaction-music-fact'),
+  );
+
+  assert.ok(
+    germanLinkReactionContract('Für mich wurde das 1999 herausgegeben.')
+      .includes('reaction-fact-claim'),
+  );
+
+  assert.ok(
     germanLinkReactionContract('Für mich passt das heute Morgen perfekt nach Zofingen.')
       .includes('reaction-context-leak'),
   );
@@ -323,6 +333,35 @@ test('station scenery detector handles German linking-s compounds', () => {
       phrase,
     );
   }
+});
+
+test('hard gates catch observed Rocknummer and herausgegeben variants', () => {
+  const current = {
+    title: 'Black Dog',
+    artist: 'Led Zeppelin',
+    album: 'Best Hits',
+    year: 1999,
+  };
+
+  assert.ok(
+    germanHardViolations({
+      kind: 'link',
+      text: 'Black Dog von Led Zeppelin ist eine Rocknummer.',
+      context,
+      current,
+      clockIsAirTime: false,
+    }).includes('unsupported-music-fact'),
+  );
+
+  assert.ok(
+    germanHardViolations({
+      kind: 'link',
+      text: 'Black Dog von Led Zeppelin wurde 1999 herausgegeben.',
+      context,
+      current,
+      clockIsAirTime: false,
+    }).includes('catalogue-year-upgraded'),
+  );
 });
 
 test('grounded artist matching uses exact token boundaries', () => {
