@@ -221,7 +221,7 @@ export function germanLinkPrompt({
     'Aufgabe:',
     'Formuliere eine kurze natürliche Moderation zum laufenden Titel, ein oder zwei vollständige Sätze.',
     'Eine subjektive Reaktion auf die Musik ist willkommen, solange sie als persönlicher Eindruck formuliert ist.',
-    'Erfinde keine Instrumentierung, Produktion, Lyrics, Charts, Bedeutung, Reputation, Musikgeschichte oder Credits.',
+    'Erfinde keine Instrumentierung, Produktion, Lyrics, Charts, Bedeutung, Reputation, Musikgeschichte, Credits oder Absicht der Künstler.',
     'Werte Katalogangaben nicht auf: aus einer Jahresangabe wird keine Behauptung über die offizielle oder ursprüngliche Veröffentlichung.',
     'Erfinde kein Wetter und keine lokale oder zeitliche Szenerie.',
     clockIsAirTime
@@ -311,6 +311,9 @@ export function germanHardViolations(args: {
     if (year && new RegExp(`\\b${year}\\b`).test(text)
       && /\b(offiziell|original|ursprünglich|erstveröffentlicht|erstveröffentlichung|veröffentlicht|erschienen|release)\b/i.test(text)) {
       out.push('catalogue-year-upgraded');
+    }
+    if (/\b(gemeint war|gemeint ist|so gewollt|von .* gewollt|sollte .* (?:klingen|wirken))\b/i.test(text)) {
+      out.push('creator-intent-invented');
     }
   }
 
@@ -403,7 +406,7 @@ export function germanQualityReviewPrompt(args: {
     'Prüfauftrag:',
     '- Kreativität, Humor, subjektive Eindrücke und ungewöhnliche, aber verständliche Formulierungen ausdrücklich bestehen lassen.',
     '- PASS, wenn der Text natürliches, verständliches Deutsch ist und keine verifizierten Fakten verfälscht oder unbelegte konkrete Fakten erfindet.',
-    '- REWRITE nur bei einem klaren, sicher reparierbaren Fehler. Dann den vollständigen sendefertigen Text in "text" zurückgeben und ausschliesslich die verifizierten Fakten verwenden.',
+    '- REWRITE nur bei einem klaren, sicher reparierbaren Fehler. Dann den vollständigen sendefertigen Text nach der REWRITE-Zeile ausgeben und ausschliesslich die verifizierten Fakten verwenden.',
     '- DROP, wenn der Text Wortsalat, ein unverständliches Fragment oder ohne neue Annahmen nicht sicher reparierbar ist.',
     '- Falsche Uhrzeit, falscher Wochentag/Tageszeit, erfundener Ort, veränderter Künstler-/Songname oder aufgewertete Katalogangaben sind niemals PASS.',
     '- Stil nicht glätten, nur weil er eigenwillig ist. Das ist eine Qualitätskontrolle, keine Geschmackszensur.',
