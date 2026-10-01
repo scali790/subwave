@@ -238,7 +238,7 @@ const UNSUPPORTED_MUSIC_FACT_WORDS =
   /\b(?:gitarr\w*|riff\w*|rhythm\w*|beat\w*|drum\w*|schlagzeug\w*|bass\w*|gesang\w*|stimme\w*|vocal\w*|synth\w*|keyboard\w*|klavier\w*|melodie\w*|harmonie\w*|sound\w*|blues\w*|rock(?:\s+n\s+roll)?|jazz\w*|pop\w*|metal\w*|punk\w*|funk\w*|soul\w*|klassiker\w*|legendär\w*|ikonisch\w*|zeitlos\w*|welthit\w*|kult\w*)\b/i;
 
 const UNSUPPORTED_SCENERY_WORDS =
-  /\b(?:(?:morgen|vormittag|mittag|nachmittag|abend)?sonne\w*|sonnig\w*|regen\w*|regnerisch\w*|wolke\w*|bewölkt\w*|schnee\w*|wind\w*|nebel\w*|sturm\w*|couch\w*|sofa\w*|küche\w*|\w*zimmer\w*|\w*brücke\w*|\w*(?:strasse|straße)\w*|park\b|garten\w*|balkon\w*|büro\w*|auto\b|zug\b)/i;
+  /\b(?:(?:morgen|vormittag|mittag|nachmittag|abend)s?sonne\w*|sonnig\w*|regen\w*|regnerisch\w*|wolke\w*|bewölkt\w*|schnee\w*|wind\w*|nebel\w*|sturm\w*|couch\w*|sofa\w*|küche\w*|\w*zimmer\w*|\w*brücke\w*|\w*(?:strasse|straße)\w*|park\b|garten\w*|balkon\w*|büro\w*|auto\b|zug\b)/i;
 
 function normalizedPhrase(value: string): string {
   return String(value || '')
