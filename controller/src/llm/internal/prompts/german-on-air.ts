@@ -234,6 +234,12 @@ export function germanLinkPrompt({
 
 const DAYPART_WORDS = /\b(vormittag|morgen|morgens|mittag|nachmittag|abend|abends|nacht|nachts)\b/i;
 
+const UNSUPPORTED_MUSIC_FACT_WORDS =
+  /\b(?:gitarr\w*|riff\w*|rhythm\w*|beat\w*|drum\w*|schlagzeug\w*|bass\w*|gesang\w*|stimme\w*|vocal\w*|synth\w*|keyboard\w*|klavier\w*|melodie\w*|harmonie\w*|sound\w*|blues\w*|rock(?:\s+n\s+roll)?|jazz\w*|pop\w*|metal\w*|punk\w*|funk\w*|soul\w*|klassiker\w*|legendär\w*|ikonisch\w*|zeitlos\w*|welthit\w*|kult\w*)\b/i;
+
+const UNSUPPORTED_SCENERY_WORDS =
+  /\b(?:sonne\w*|sonnig\w*|regen\w*|regnerisch\w*|wolke\w*|bewölkt\w*|schnee\w*|wind\w*|nebel\w*|sturm\w*|couch\w*|sofa\w*|küche\w*|zimmer\w*|brücke\w*|strasse\w*|straße\w*|park\w*|garten\w*|balkon\w*|büro\w*|auto\w*|zug\w*)\b/i;
+
 function normalizedPhrase(value: string): string {
   return String(value || '')
     .toLocaleLowerCase('de-CH')
@@ -254,6 +260,16 @@ function containsPhrase(text: string, phrase: string): boolean {
   // artist name is a character prefix of the typo. Padding with spaces gives
   // us token boundaries without regex-escaping arbitrary artist/title text.
   return ` ${hay} `.includes(` ${needle} `);
+}
+
+function withoutGroundedMusicEntities(text: string, current: any): string {
+  let scan = ` ${normalizedPhrase(text)} `;
+  for (const raw of [current?.title, current?.artist, current?.album]) {
+    const entity = normalizedPhrase(String(raw || ''));
+    if (!entity) continue;
+    scan = scan.split(` ${entity} `).join(' ');
+  }
+  return scan.replace(/\s+/g, ' ').trim();
 }
 
 export function germanHardViolations(args: {
@@ -302,6 +318,9 @@ export function germanHardViolations(args: {
   if (args.kind === 'station-id') {
     const station = String(settings.get().station || '').trim();
     if (station && !containsPhrase(text, station)) out.push('station-name-missing-or-changed');
+    if (UNSUPPORTED_SCENERY_WORDS.test(normalizedPhrase(text))) {
+      out.push('invented-scenery');
+    }
   }
 
   if (args.kind === 'link') {
@@ -321,6 +340,11 @@ export function germanHardViolations(args: {
     }
     if (/\b(gemeint war|gemeint ist|so gewollt|von .* gewollt|sollte .* (?:klingen|wirken))\b/i.test(text)) {
       out.push('creator-intent-invented');
+    }
+
+    const ungroundedMusic = withoutGroundedMusicEntities(text, args.current);
+    if (UNSUPPORTED_MUSIC_FACT_WORDS.test(ungroundedMusic)) {
+      out.push('unsupported-music-fact');
     }
   }
 
