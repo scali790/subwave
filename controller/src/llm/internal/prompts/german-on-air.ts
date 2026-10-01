@@ -309,6 +309,12 @@ const REVIEW_SYSTEM = [
   'Nutze ausschliesslich die gelieferten verifizierten Fakten.',
 ].join(' ');
 
+export function localOllamaReviewLeg(llm: any = settings.get().llm): 'primary' | 'fallback' | null {
+  if (llm?.provider === 'ollama') return 'primary';
+  if (llm?.fallback?.enabled === true && llm?.fallback?.provider === 'ollama') return 'fallback';
+  return null;
+}
+
 export async function reviewGermanOnAirText(args: {
   kind: 'hourly' | 'station-id' | 'link';
   draft: string;
@@ -320,6 +326,18 @@ export async function reviewGermanOnAirText(args: {
   if (!draft) return { text: '', verdict: 'drop', reason: 'empty draft' };
 
   try {
+    const leg = localOllamaReviewLeg();
+    if (!leg) {
+      const reason = 'review failed: no local Ollama leg configured';
+      logEvent('speech.quality', {
+        kind: args.kind,
+        verdict: 'drop',
+        reason,
+        reviewer: 'local-ollama',
+      });
+      return { text: '', verdict: 'drop', reason };
+    }
+
     const out = await djObject({
       system: REVIEW_SYSTEM,
       prompt: germanQualityReviewPrompt({ ...args, draft }),
@@ -330,12 +348,7 @@ export async function reviewGermanOnAirText(args: {
       // Family Radio uses local Ollama/Qwen as the editorial leg. Resolve by
       // provider role rather than hard-coding "fallback", because Qwen may be
       // promoted to primary after acceptance.
-      leg: settings.get().llm?.provider === 'ollama'
-        ? 'primary'
-        : settings.get().llm?.fallback?.enabled === true
-          && settings.get().llm?.fallback?.provider === 'ollama'
-          ? 'fallback'
-          : 'fallback',
+      leg,
     });
 
     const verdict = out?.verdict === 'pass' || out?.verdict === 'rewrite' ? out.verdict : 'drop';
