@@ -10,7 +10,11 @@ const settings = await import('../src/settings.js');
 const {
   germanDaypartForHour,
   germanHourlyPrompt,
+  germanLinkDraft,
+  germanLinkFactSpine,
   germanLinkPrompt,
+  germanLinkReactionContract,
+  germanLinkReactionPrompt,
   germanHardViolations,
   germanQualityReviewPrompt,
   germanRadioSystem,
@@ -109,6 +113,69 @@ test('German station ident keeps creativity but forbids invented scenery', () =>
   assert.match(prompt, /Erfinde keine Raum-, Strassen-, Brücken-, Stadt-, Wetter-/);
   assert.match(prompt, /Standort: Zofingen, Schweiz/);
   assert.doesNotMatch(prompt, /one-room intimacy|Tone for this segment|Task:/);
+});
+
+test('German link fact spine is deterministic and contains only verified identity', () => {
+  const spine = germanLinkFactSpine({
+    title: 'Black Dog',
+    artist: 'Led Zeppelin',
+    album: 'Best Hits',
+    year: 1999,
+  });
+
+  assert.match(spine, /Black Dog/);
+  assert.match(spine, /Led Zeppelin/);
+  assert.doesNotMatch(spine, /Best Hits|1999/);
+});
+
+test('German link reaction contract keeps only explicitly subjective copy', () => {
+  assert.deepEqual(
+    germanLinkReactionContract('Für mich hat der gerade ordentlich Energie.'),
+    [],
+  );
+
+  assert.ok(
+    germanLinkReactionContract('Diese Rocknummer hat eine markante Gitarrenlinie.')
+      .includes('reaction-not-explicitly-subjective'),
+  );
+
+  assert.ok(
+    germanLinkReactionContract('Für mich ist das ein zeitloser Rock-Klassiker.')
+      .includes('reaction-music-fact'),
+  );
+
+  assert.ok(
+    germanLinkReactionContract('Für mich passt das heute Morgen perfekt nach Zofingen.')
+      .includes('reaction-context-leak'),
+  );
+});
+
+test('German link draft keeps deterministic facts separate from optional reaction', () => {
+  const current = {
+    title: 'Black Dog',
+    artist: 'Led Zeppelin',
+    album: 'Best Hits',
+    year: 1999,
+  };
+  const spine = germanLinkFactSpine(current);
+  assert.equal(germanLinkDraft(current, ''), spine);
+
+  const draft = germanLinkDraft(current, 'Mich packt der gerade sofort.');
+  assert.equal(draft, `${spine} Mich packt der gerade sofort.`);
+});
+
+test('German reaction prompt contains no track identity or catalogue metadata', () => {
+  const prompt = germanLinkReactionPrompt({
+    current: {
+      title: 'Black Dog',
+      artist: 'Led Zeppelin',
+      album: 'Best Hits',
+      year: 1999,
+    },
+  });
+  assert.doesNotMatch(prompt, /Black Dog|Led Zeppelin|Best Hits|1999/);
+  assert.match(prompt, /subjektiven Reaktionssatz/);
+  assert.match(prompt, /Für mich/);
 });
 
 test('German link treats catalogue year as non-authoritative release metadata', () => {
