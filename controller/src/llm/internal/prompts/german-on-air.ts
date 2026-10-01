@@ -327,14 +327,15 @@ export function parseGermanQualityDecision(raw: string): {
   const firstBreak = clean.indexOf('\n');
   const head = (firstBreak === -1 ? clean : clean.slice(0, firstBreak)).trim();
   const upper = head.toUpperCase();
+  const bare = upper.replace(/[.!]+$/, '');
 
-  if (upper === 'PASS' || upper.startsWith('PASS ')) {
+  if (bare === 'PASS' || upper.startsWith('PASS ')) {
     return { verdict: 'pass', text: '' };
   }
-  if (upper === 'DROP' || upper.startsWith('DROP ')) {
+  if (bare === 'DROP' || upper.startsWith('DROP ')) {
     return { verdict: 'drop', text: '' };
   }
-  if (upper === 'REWRITE' || upper.startsWith('REWRITE:')) {
+  if (bare === 'REWRITE' || upper.startsWith('REWRITE:')) {
     let text = firstBreak === -1
       ? head.replace(/^REWRITE\s*:?\s*/i, '')
       : clean.slice(firstBreak + 1).trim();
