@@ -33,14 +33,19 @@ import { join } from 'node:path';
 const STATE_DIR = mkdtempSync(join(tmpdir(), 'skill-abstain-'));
 process.env.STATE_DIR = STATE_DIR;
 const DRY_WELL_ATTEMPTS = join(STATE_DIR, 'dry-well-attempts.txt');
+const CRON_DRY_WELL_ATTEMPTS = join(STATE_DIR, 'cron-dry-well-attempts.txt');
 
-// Two skills on disk for the end-to-end run below: one whose data tool reports
-// nothing usable, and one that reports nothing usable but declares it writes its
-// own material anyway. Written BEFORE the imports so loadSkills() sees them.
-function writeSkill(slug: string, tool: string) {
+// Skills on disk for the end-to-end runs below: one whose data tool reports
+// nothing usable, a cron-only variant for the agent-mode regression, and one
+// that reports nothing usable but declares it writes its own material anyway.
+// Written BEFORE the imports so loadSkills() sees them.
+function writeSkill(slug: string, tool: string, extraFrontmatter = '') {
   const dir = join(STATE_DIR, 'skills', slug);
   mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, 'SKILL.md'), `---\nname: ${slug}\n---\nSay something about ${slug}.\n`);
+  writeFileSync(
+    join(dir, 'SKILL.md'),
+    `---\nname: ${slug}\n${extraFrontmatter}---\nSay something about ${slug}.\n`,
+  );
   writeFileSync(join(dir, 'tool.mjs'), tool);
 }
 writeSkill('dry-well', `import { appendFileSync } from 'node:fs';
@@ -49,9 +54,15 @@ export default async () => {
   return { available: false };
 };
 `);
+writeSkill('cron-dry-well', `import { appendFileSync } from 'node:fs';
+export default async () => {
+  appendFileSync(${JSON.stringify(CRON_DRY_WELL_ATTEMPTS)}, 'attempt\\n');
+  return { available: false };
+};
+`, 'cron: "10 7 * * *"\ncronOnly: true\n');
 writeSkill('own-material', 'export const requiresData = false;\nexport default async () => ({ available: false });\n');
 
-const { requiresGrounding, unusableDataReason, standDownReason, declaredBool } =
+const { forcedRunUsesDirectDataPath, requiresGrounding, unusableDataReason, standDownReason, declaredBool } =
   await import('../src/skills/abstain-policy.js');
 const { agenticTick, forcedSchema, forcedSystem, runCapability } = await import('../src/skills/_agent.js');
 const { queue } = await import('../src/broadcast/queue.js');
@@ -103,6 +114,22 @@ test('an unrecognised declaration falls through to the default, not to false', (
   assert.equal(declaredBool(''), undefined);
   assert.equal(declaredBool(undefined), undefined);
   assert.equal(requiresGrounding(dataCap({ config: { requiresData: 'perhaps' } })), true);
+});
+
+test('agent mode directly fetches only deterministic grounded cron-only data', () => {
+  assert.equal(forcedRunUsesDirectDataPath(dataCap(), false), true, 'pool mode remains direct');
+  assert.equal(forcedRunUsesDirectDataPath(dataCap({ cronOnly: true }), true), true);
+  assert.equal(
+    forcedRunUsesDirectDataPath(dataCap({ cronOnly: true, toolInputs: { query: 'what to fetch' } }), true),
+    false,
+    'agent-steerable tool inputs still require the agent loop',
+  );
+  assert.equal(forcedRunUsesDirectDataPath(dataCap({ cronOnly: false }), true), false);
+  assert.equal(
+    forcedRunUsesDirectDataPath(dataCap({ cronOnly: true, requiresData: false }), true),
+    false,
+    'free-generation skills keep the agent loop',
+  );
 });
 
 // --- 2. what counts as unusable --------------------------------------------
@@ -241,6 +268,27 @@ test('a forced run on empty data stands down without ever calling the model', as
   assert.equal(run.aired, false);
   assert.equal(run.text, null);
   assert.match(String(run.reason), /nothing fresh/);
+});
+
+test('agent mode cron-only grounded empty data stands down before the model', async () => {
+  const settings = await import('../src/settings.js');
+  const { loadSkills } = await import('../src/skills/loader.js');
+  await settings.update({
+    llm: { pickerAgent: true, provider: 'openai', apiKey: '', agentTimeoutMs: 50 },
+  });
+  await loadSkills();
+
+  const attempts = () => existsSync(CRON_DRY_WELL_ATTEMPTS)
+    ? readFileSync(CRON_DRY_WELL_ATTEMPTS, 'utf8').trim().split('\n').filter(Boolean).length
+    : 0;
+  const before = attempts();
+
+  const run = await runCapability('cron-dry-well', { time: {}, clock: {} });
+  assert.equal(run.aired, false);
+  assert.equal(run.queued, false);
+  assert.equal(run.text, null);
+  assert.match(String(run.reason), /nothing fresh/);
+  assert.equal(attempts(), before + 1, 'deterministic cron data is fetched exactly once');
 });
 
 test('pool mode skips generation and backs off when grounded data is unavailable', async () => {
