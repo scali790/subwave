@@ -158,6 +158,22 @@ test('hard gates catch the observed production regressions', () => {
       'daypart-without-airtime',
     ].sort(),
   );
+
+  assert.deepEqual(
+    germanHardViolations({
+      kind: 'link',
+      text: 'Black Dog von Led Zeppelin klingt genau wie er gemeint war.',
+      context,
+      current: {
+        title: 'Black Dog',
+        artist: 'Led Zeppelin',
+        album: 'Best Hits',
+        year: 1999,
+      },
+      clockIsAirTime: false,
+    }),
+    ['creator-intent-invented'],
+  );
 });
 
 test('top-of-hour hard gate does not reject unrelated German prepositions', () => {
