@@ -69,6 +69,13 @@ test('German clock semantics anchor 10:00 as exactly ten, not before ten', () =>
   assert.doesNotMatch(prompt, /ten in the morning|Local time:|Task:/);
 });
 
+test('German clock anchors stay natural at noon and midnight edges', () => {
+  assert.equal(germanTimeAnchor({ clock: { hhmm: '00:00' } }), 'gerade Mitternacht (nacht)');
+  assert.equal(germanTimeAnchor({ clock: { hhmm: '12:00' } }), 'gerade Mittag (mittag)');
+  assert.equal(germanTimeAnchor({ clock: { hhmm: '23:30' } }), 'etwa halb zwölf (nacht)');
+  assert.equal(germanTimeAnchor({ clock: { hhmm: '23:45' } }), 'etwa Viertel vor Mitternacht (nacht)');
+});
+
 test('German radio system stays German-native and preserves house rules', () => {
   const system = germanRadioSystem(persona);
   assert.match(system, /ausschliesslich natürliches Hochdeutsch/);
