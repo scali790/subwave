@@ -47,6 +47,7 @@ const settings = {
       playlistIds: ['pl-anchor-1', 'pl-anchor-2'],
       playlistStrict: true,
       excludedPlaylistIds: ['pl-blocked'],
+      tags: ['music-only'],
     },
   ],
   personas: [{ id: 'p1', name: 'Miles', avatar: '' }],
@@ -69,6 +70,11 @@ await test('carries the playlist anchor (ids + strict toggle)', () => {
 await test('carries excludedPlaylistIds — the blocklist the pick paths read (#779 no-op regression)', () => {
   const show = resolveActiveShow(at, settings as any)!;
   assert.deepEqual((show as any).excludedPlaylistIds, ['pl-blocked']);
+});
+
+await test('carries policy-bearing show tags to runtime consumers', () => {
+  const show = resolveActiveShow(at, settings as any)!;
+  assert.deepEqual((show as any).tags, ['music-only']);
 });
 
 await test('carries the strict music filters', () => {
