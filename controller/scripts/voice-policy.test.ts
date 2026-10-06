@@ -108,7 +108,12 @@ try {
   const musicOnlyShowId = 's_musiconly';
   const week: (string | null)[][] = Array.from({ length: 7 }, () => Array(24).fill(null));
   week[musicOnlyAt.getUTCDay()][musicOnlyAt.getUTCHours()] = musicOnlyShowId;
+  // Pin the station timezone THROUGH settings.update(), not only through the
+  // process-local time helper above. update() reapplies next.timezone after every
+  // save; without this field the test silently fell back to the container TZ
+  // (UTC in CI, Europe/Zurich in production) and resolved a different hour.
   await settings.update({
+    timezone: 'UTC',
     shows: [{
       id: musicOnlyShowId,
       name: 'Music Only',
