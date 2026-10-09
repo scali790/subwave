@@ -463,5 +463,7 @@ export async function djAgent({
         throw err;
       }
     },
+    undefined,
+    { timeoutMs },
   );
 }

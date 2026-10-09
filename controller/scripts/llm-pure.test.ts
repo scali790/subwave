@@ -148,6 +148,14 @@ async function main() {
     assert.equal(isUnreachable(e), false);        // gateway answered, host is up
     assert.equal(isQuotaOrAuthError(e), false);   // not the user's quota — the upstream is saturated
   });
+  await test('internal gateway 424 Failed Dependency → upstream-overload/failover', () => {
+    const e: any = { statusCode: 424, message: 'Failed Dependency' };
+    assert.equal(isUpstreamOverloaded(e), true);
+    assert.equal(isTransient(e), false);
+    assert.equal(isUnreachable(e), false);
+    assert.equal(isQuotaOrAuthError(e), false);
+  });
+
   await test('Anthropic 529 "Overloaded" → upstream-overload (529 is outside the transient status set)', () => {
     assert.equal(isUpstreamOverloaded({ statusCode: 529 }), true);
     assert.equal(isUpstreamOverloaded({ message: 'Overloaded' }), true);

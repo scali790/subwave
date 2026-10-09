@@ -13,9 +13,17 @@ export function voiceEnabled(): boolean {
   return settings.get()?.tts?.enabled !== false;
 }
 
+// A show tagged `music-only` is an editorial quiet window. Keep the station-wide
+// voice switch ON so manual operator speech remains available, but refuse every
+// autonomous speech path before LLM/TTS generation while such a show is active.
+export function musicOnlyShowActive(date: Date = new Date()): boolean {
+  const show = settings.resolveActiveShow(date);
+  return Array.isArray(show?.tags) && show.tags.includes('music-only');
+}
+
 // May an AUTONOMOUS talk moment start? Manual runners must NOT call this.
-export function autoVoiceAllowed(): boolean {
-  return voiceEnabled();
+export function autoVoiceAllowed(date: Date = new Date()): boolean {
+  return voiceEnabled() && !musicOnlyShowActive(date);
 }
 
 export function voiceStatus() {

@@ -17,12 +17,13 @@
 // break. A model handed no facts and ordered to speak can only invent.
 //
 // So: a skill that speaks FROM fetched data stands down when that data comes
-// back unusable. Two decisions, kept here rather than at the call sites because
-// the forced path reaches them from three callers and the pool/agent paths each
-// ask again:
+// back unusable. The policy decisions stay here rather than at the call sites
+// because the forced path reaches them from three callers and the pool/agent
+// paths each ask again:
 //
-//   requiresGrounding(cap)   — may this skill's forced run stand down at all?
-//   unusableDataReason(data) — is what the tool returned fit to write from?
+//   requiresGrounding(cap)                    — may this forced run stand down?
+//   forcedRunUsesDirectDataPath(cap, agent)   — who fetches deterministic data?
+//   unusableDataReason(data)                  — is the fetched data usable?
 //
 // Deliberately NOT a gate in the CLAUDE.md sense ("manual operator triggers are
 // exempt from every automatic gate"): nothing here decides whether the operator
@@ -63,6 +64,8 @@ export function declaredBool(value: unknown): boolean | undefined {
 interface GroundedCap {
   kind?: string;
   toolFn?: unknown;
+  cronOnly?: unknown;
+  toolInputs?: unknown;
   // tool.mjs `export const requiresData = true|false` — the skill author's
   // declaration, for custom skills that don't want the kind default.
   requiresData?: unknown;
@@ -86,6 +89,24 @@ export function requiresGrounding(cap: GroundedCap | null | undefined): boolean 
   const author = declaredBool(cap.requiresData);
   if (author !== undefined) return author;
   return !FREE_GENERATION_KINDS.has(String(cap.kind || ''));
+}
+
+// Agent mode normally lets the model call the skill tool so it can choose any
+// declared tool inputs. A cron-only grounded skill with no tool inputs has no
+// such choice to make: its scheduled data fetch is deterministic. Fetching that
+// data directly preserves the forced-run {aired:false} contract even when a
+// model never makes the tool call, while input-driven and ordinary skills keep
+// their existing agent loop.
+export function forcedRunUsesDirectDataPath(
+  cap: GroundedCap | null | undefined,
+  pickerAgent: boolean,
+): boolean {
+  if (!pickerAgent) return true;
+  if (!requiresGrounding(cap) || cap?.cronOnly !== true) return false;
+
+  const inputs = cap.toolInputs;
+  if (!inputs || typeof inputs !== 'object' || Array.isArray(inputs)) return true;
+  return Object.keys(inputs as Record<string, unknown>).length === 0;
 }
 
 // Why the fetched data can't be written from, or null when it can.

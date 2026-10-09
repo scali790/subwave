@@ -61,6 +61,9 @@ export function record(call: any) {
   // Durable, trace-correlated event. The ring buffer above is lost on restart
   // and uncorrelated; this lands on the unified events.jsonl timeline.
   logEvent('llm', {
+    requestId: call.requestId,
+    upstream: call.upstream,
+    deadlineExceeded: call.deadlineExceeded,
     kind: call.kind,
     ok: call.ok,
     ms: call.ms,
