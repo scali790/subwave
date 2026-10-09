@@ -42,6 +42,14 @@ test('SDK transport: NIM 424 preserves cause, offline backup cools down, deadlin
     for (let i = 0; i < 2; i++) await assert.rejects(djText(args), { name: 'FallbackUnavailableError' });
     assert.equal(tags, 1);
     assert.equal(generations, 0);
+    const { withFailover } = await import('../src/llm/internal/core/failover.js');
+    await assert.rejects(withFailover('late-pinned-review', () => ({}), async () => {
+      // A transport which ignores cancellation must not report a late success.
+      await new Promise(resolve => setTimeout(resolve, 60));
+      return { value: 'late', via: 'synthetic' };
+    }, 'fallback', { timeoutMs: 20 }), { name: 'LlmDeadlineError' });
+    await new Promise(resolve => setTimeout(resolve, 80));
+    assert.equal(recentCalls.find(c => c.kind === 'late-pinned-review')?.ok, false);
     assert.equal(recentCalls.find(c => c.upstream?.httpStatus === 424)?.upstream.upstreamCode, 'upstream_timeout');
     assert.ok(ids.every(id => /^[a-f0-9-]{36}$/.test(id)));
     mode = 'ok';

@@ -107,6 +107,7 @@ async function runFailover<T>(
     const started = Date.now();
     try {
       const r = await attempt(leg);
+      operationSignal()?.throwIfAborted();
       recordSuccess({ kind, started, via: `${r.via}:pinned`, model: leg.label, sampling: r.sampling, usage: r.usage, perf: r.perf, warnings: r.warnings, extra: r.extra });
       return r.value;
     } catch (err: any) {
