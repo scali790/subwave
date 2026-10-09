@@ -320,7 +320,7 @@ export async function generateHandoffGreeting(args: any) {
 export async function generateAdLib({ instruction, context = null, recap = null, recentOpeners = null }: any) {
   const ctxLines = buildContextLines(context, { contextFields: SCRIPT_CONTEXT_FIELDS });
   const clipped = String(instruction || '').replace(/\s+/g, ' ').trim().slice(0, 300);
-  ctxLines.push(`Task: the station operator wants you to say something on-air. Their instruction: "${clipped}". Deliver it in character as a natural spoken line — don't read the instruction back verbatim, perform it. ${lengthPhrase('adlib')}.`);
+  ctxLines.push(`Task: the station operator wants you to say something on-air. Their instruction: "${clipped}". Deliver it in character as a natural spoken line — don't read the instruction back verbatim, perform it. ${lengthPhrase('adlib')}. Use at most 500 characters including spaces; prefer one or two complete sentences.`);
   return djText({
     system: djSystem(),
     prompt: decoratePrompt(ctxLines.join('\n'), { kind: 'adlib', recap, recentOpeners }),

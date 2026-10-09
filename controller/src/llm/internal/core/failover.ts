@@ -9,6 +9,10 @@
 // upstream that survived same-leg retries (see isUpstreamOverloaded; issue #671).
 // record* lives here so a call is logged exactly once, with the leg that ran.
 
+import * as settings from '../../../settings.js';
+import { ollamaBaseUrl } from '../provider/registry.js';
+import { withinOperation, operationSignal, currentOperation, upstreamDiagnostic } from './operation.js';
+import { fallbackAvailability } from './fallback-availability.js';
 import { primaryLeg, fallbackLeg } from '../provider/legs.js';
 import { record } from '../telemetry/log.js';
 import { isUnreachable, isQuotaOrAuthError, isUpstreamOverloaded, isRateLimited } from './pure.js';
@@ -21,7 +25,7 @@ import { isUnreachable, isQuotaOrAuthError, isUpstreamOverloaded, isRateLimited 
 // (system, messages, toolCalls, response, user, …) goes in `extra`.
 function recordSuccess({ kind, started, via, model, sampling, usage, perf, warnings, extra = {} }: any) {
   record({
-    kind,
+    kind, requestId: currentOperation()?.id,
     ok: true,
     ms: Date.now() - started,
     model,
@@ -40,7 +44,7 @@ function recordSuccess({ kind, started, via, model, sampling, usage, perf, warni
 
 function recordFailure({ kind, started, via, model, error, extra = {} }: any) {
   record({
-    kind,
+    kind, requestId: currentOperation()?.id,
     ok: false,
     ms: Date.now() - started,
     model,
@@ -91,7 +95,7 @@ export interface AttemptResult<T> {
 // pins one consumer per leg, discussion #320). Records carry a `…:pinned` via
 // suffix so /stats' exact-match buckets stay untouched. Unpinned calls are the
 // untouched primary→fallback path.
-export async function withFailover<T>(
+async function runFailover<T>(
   kind: string,
   failExtra: (err: any) => any,
   attempt: (leg: any) => Promise<AttemptResult<T>>,
@@ -107,7 +111,7 @@ export async function withFailover<T>(
       return r.value;
     } catch (err: any) {
       logFailurePreview(kind, err);
-      recordFailure({ kind, started, via: `${err?.__via || 'ai-sdk'}:pinned`, model: leg.label, error: err?.message, extra: failExtra(err) });
+      recordFailure({ kind, started, via: `${err?.__via || 'ai-sdk'}:pinned`, model: leg.label, error: err?.message, extra: { ...failExtra(err), upstream: upstreamDiagnostic(err) } });
       throw err;
     }
   }
@@ -115,32 +119,57 @@ export async function withFailover<T>(
   const primaryStarted = Date.now();
   try {
     const r = await attempt(primary);
+    operationSignal()?.throwIfAborted();
     recordSuccess({ kind, started: primaryStarted, via: r.via, model: primary.label, sampling: r.sampling, usage: r.usage, perf: r.perf, warnings: r.warnings, extra: r.extra });
     return r.value;
   } catch (err: any) {
     const primaryVia = err?.__via || 'ai-sdk';
+    if (operationSignal()?.aborted) {
+      recordFailure({ kind, started: primaryStarted, via: primaryVia, model: primary.label,
+        error: operationSignal()?.reason?.message, extra: { ...failExtra(err), upstream: upstreamDiagnostic(err), deadlineExceeded: true } });
+      operationSignal()?.throwIfAborted();
+    }
     const quotaOrAuth = isQuotaOrAuthError(err);
     const upstreamOverloaded = isUpstreamOverloaded(err);
     const rateLimited = isRateLimited(err);
     const backup = (isUnreachable(err) || quotaOrAuth || upstreamOverloaded || rateLimited) ? fallbackLeg() : null;
     if (!backup) {
       logFailurePreview(kind, err);
-      recordFailure({ kind, started: primaryStarted, via: primaryVia, model: primary.label, error: err?.message, extra: failExtra(err) });
+      recordFailure({ kind, started: primaryStarted, via: primaryVia, model: primary.label, error: err?.message, extra: { ...failExtra(err), upstream: upstreamDiagnostic(err) } });
       throw err;
     }
-    const reason = quotaOrAuth ? 'refused (quota/auth)' : upstreamOverloaded ? 'upstream overloaded' : rateLimited ? 'rate limited' : 'unreachable';
+    const reason = quotaOrAuth ? 'refused (quota/auth)' : upstreamOverloaded ? 'upstream dependency failed' : rateLimited ? 'rate limited' : 'unreachable';
     const detail = err?.statusCode || err?.cause?.statusCode || err?.code || err?.cause?.code || err?.name || 'unknown';
     console.log(`[${kind}] primary LLM (${primary.label}) ${reason} (${detail}) — failing over to ${backup.label}`);
-    recordFailure({ kind, started: primaryStarted, via: `${primaryVia}:failover→${backup.label}`, model: primary.label, error: err?.message, extra: failExtra(err) });
+    recordFailure({ kind, started: primaryStarted, via: `${primaryVia}:failover→${backup.label}`, model: primary.label, error: err?.message, extra: { ...failExtra(err), upstream: upstreamDiagnostic(err) } });
     const backupStarted = Date.now();
     try {
+      const endpoint = backup.cfg.provider === 'ollama' ? ollamaBaseUrl(backup.cfg) : '';
+      if (!await fallbackAvailability.ready(backup.cfg, endpoint)) {
+        throw Object.assign(new Error('Configured fallback is unavailable or its model is missing; optional AI work skipped'), { name: 'FallbackUnavailableError', code: 'FALLBACK_UNAVAILABLE' });
+      }
+      operationSignal()?.throwIfAborted();
       const r = await attempt(backup);
+      operationSignal()?.throwIfAborted();
       recordSuccess({ kind, started: backupStarted, via: r.via, model: backup.label, sampling: r.sampling, usage: r.usage, perf: r.perf, warnings: r.warnings, extra: r.extra });
       return r.value;
     } catch (err2: any) {
+      if (isUnreachable(err2)) fallbackAvailability.failed({ ...backup.cfg, ollamaUrl: ollamaBaseUrl(backup.cfg) });
       logFailurePreview(kind, err2);
-      recordFailure({ kind, started: backupStarted, via: err2?.__via || 'ai-sdk', model: backup.label, error: err2?.message, extra: failExtra(err2) });
+      recordFailure({ kind, started: backupStarted, via: err2?.__via || 'ai-sdk', model: backup.label, error: err2?.message, extra: { ...failExtra(err2), upstream: upstreamDiagnostic(err2) } });
       throw err2;
     }
   }
+}
+
+// One budget spans primary, retries, recovery and optional fallback. Pinned
+// bulk/editorial jobs keep their caller-owned policy unless explicitly bounded.
+export function withFailover<T>(kind: string, failExtra: (err: any) => any,
+  attempt: (leg: any) => Promise<AttemptResult<T>>, pin?: 'primary' | 'fallback',
+  options: { timeoutMs?: number; signal?: AbortSignal } = {}): Promise<T> {
+  const run = () => runFailover(kind, failExtra, attempt, pin);
+  if (pin && options.timeoutMs == null) return run();
+  const configured = options.timeoutMs ?? settings.get().llm?.agentTimeoutMs ?? 45_000;
+  const ms = Number.isFinite(configured) && configured > 0 ? configured : 45_000;
+  return withinOperation(ms, run, options.signal);
 }

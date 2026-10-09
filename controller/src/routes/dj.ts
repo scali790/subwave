@@ -1,3 +1,4 @@
+import { SpeechRequestError } from '../audio/tts-contract.js';
 // Admin-gated DJ command center behind /admin/dash. Manual triggers are an
 // operator override: they bypass the shouldFire frequency gate and cooldowns.
 import express from 'express';
@@ -603,8 +604,9 @@ router.delete('/dj/skills/:slug', requireAdmin, async (req, res) => {
 // in persona first. `sfx` airs under the opening words and, being a manual
 // trigger, ignores the settings.sfx.enabled autonomy toggle.
 router.post('/dj/say', requireAdmin, async (req, res) => {
-  const text = (typeof req.body?.text === 'string' ? req.body.text : '').trim().slice(0, SAY_TEXT_MAX);
+  const text = (typeof req.body?.text === 'string' ? req.body.text : '').trim();
   if (!text) return res.status(400).json({ error: 'text is required' });
+  if ([...text].length > SAY_TEXT_MAX) return res.status(422).json({ error: `Please shorten the instruction to ${SAY_TEXT_MAX} characters.`, code: 'text_too_long', max_chars: SAY_TEXT_MAX });
 
   const kind = SAY_KINDS.includes(req.body?.kind) ? req.body.kind : 'dj-speak';
   const mode = req.body?.mode === 'styled' ? 'styled' : 'raw';
@@ -627,12 +629,13 @@ router.post('/dj/say', requireAdmin, async (req, res) => {
         recentOpeners: queue.getRecentOpeners(),
       });
     }
-    await queue.announce(spoken, kind);
+    const outcome = await queue.announce(spoken, kind, { throwOnError: true });
+    if (!outcome.accepted) return res.status(409).json({ error: 'Announcement was not accepted. Please try again.', code: 'announcement_not_accepted' });
     if (sfxName) void queue.playSfx(sfxName, { underVoice: true });
     res.json({ ok: true, mode, kind, spoken, sfx: sfxName || null });
   } catch (err) {
     queue.log('error', `/dj/say failed: ${err.message}`);
-    res.status(500).json({ error: err.message });
+    res.status(err instanceof SpeechRequestError ? 422 : 500).json({ error: err.message, ...(err instanceof SpeechRequestError ? { code: err.code, actual_chars: err.actualChars, max_chars: err.maxChars } : {}) });
   }
 });
 

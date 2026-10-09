@@ -16,6 +16,7 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { readSpeechConstraints, validateSpeech, SpeechRequestError, type SpeechConstraints } from './tts-contract.js';
 import { config } from '../config.js';
 import * as settings from '../settings.js';
 import { fetchWithTimeout } from '../util/fetch-timeout.js';
@@ -25,6 +26,11 @@ import { hasFfmpeg, transcodeAudio } from './audio-import.js';
 const PROBE_TIMEOUT_MS = 5_000;
 const PROBE_INTERVAL_MS = 30_000;
 const REQUEST_TIMEOUT_MS = 180_000;
+
+let advertised: { url: string; constraints: SpeechConstraints | null } | null = null;
+export function constraints(): SpeechConstraints | null {
+  return advertised?.url === getUrl() ? advertised.constraints : null;
+}
 
 function getUrl(): string {
   return settings.get().tts?.remote?.url || '';
@@ -39,7 +45,9 @@ async function probeOnce(): Promise<boolean> {
   try {
     const res = await fetchWithTimeout(`${url}/health`, { timeoutMs: PROBE_TIMEOUT_MS, bodyDeadline: true });
     if (!res.ok) return false;
-    const body = (await res.json()) as { ok?: boolean };
+    const body = (await res.json()) as { ok?: boolean; capabilities?: unknown };
+    const contract = readSpeechConstraints(body.capabilities);
+    if (body.ok) advertised = { url, constraints: contract };
     return !!body.ok;
   } catch {
     return false;
@@ -83,24 +91,31 @@ export function isAvailable(): boolean {
 
 export async function speak(
   text: string,
-  { outPath: customPath, voice, speedScale }: { outPath?: string; voice?: string; speedScale?: number } = {},
+  { outPath: customPath, voice, speedScale, requestId = crypto.randomUUID(), signal }: { outPath?: string; voice?: string; speedScale?: number; requestId?: string; signal?: AbortSignal } = {},
 ): Promise<string> {
   const url = getUrl();
   if (!url) throw new Error('remote TTS URL not configured');
   if (!text || !text.trim()) throw new Error('Empty TTS text');
+  validateSpeech(text, constraints(), voice);
 
   const outPath = customPath || path.join(config.piper.outDir, `${crypto.randomBytes(6).toString('hex')}.wav`);
   await mkdir(path.dirname(outPath), { recursive: true });
 
   const res = await fetchWithTimeout(`${url}/speak`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'X-Request-ID': requestId },
     body: JSON.stringify({ text: text.trim(), voice: voice ?? '' }),
     timeoutMs: REQUEST_TIMEOUT_MS,
+    bodyDeadline: true,
+    signal,
   });
   if (!res.ok) {
-    const errBody = await res.text().catch(() => '');
-    throw new Error(`remote TTS ${res.status}: ${errBody || res.statusText}`);
+    const detail = await res.json().catch(() => ({})) as any;
+    const code = typeof detail.error === 'string' && /^[a-z_]{1,64}$/.test(detail.error) ? detail.error : 'remote_http_error';
+    if ([400, 413, 422].includes(res.status)) {
+      throw new SpeechRequestError(code, res.status, detail.actual_chars, detail.max_chars ?? detail.max_total_chars);
+    }
+    throw Object.assign(new Error(`remote TTS ${res.status}: ${code}`), { code, httpStatus: res.status });
   }
   // The audio rides back in the response body — write it where the controller
   // and Liquidsoap can both read it (no shared volume needed). An empty body

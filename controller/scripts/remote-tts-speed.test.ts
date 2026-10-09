@@ -138,7 +138,8 @@ if (scenario) {
       const outPath = path.join(stateDir, 'errors.wav');
       await assert.rejects(
         remoteTts.speak('HTTP failure.', { outPath, speedScale: 0.9 }),
-        /remote TTS 503: renderer unavailable/,
+        (error: any) => error.httpStatus === 503 && error.code === 'remote_http_error'
+          && !error.message.includes('renderer unavailable'),
       );
       await assert.rejects(
         remoteTts.speak('Empty failure.', { outPath, speedScale: 0.9 }),

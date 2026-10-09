@@ -82,5 +82,6 @@ export async function djText({
       };
     },
     leg,
+    { signal },
   );
 }

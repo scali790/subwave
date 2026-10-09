@@ -2092,8 +2092,8 @@ class Queue {
   async announce(
     text,
     kind = 'announcement',
-    { persona = null, meta = {}, pauseTalkEligible = false, sfx: selectedSfx = null, hostSpeech = null }:
-      { persona?: Persona | null; meta?: TurnMeta; pauseTalkEligible?: boolean; sfx?: string | null; hostSpeech?: HostSpeechStamp | null } = {},
+    { persona = null, meta = {}, pauseTalkEligible = false, sfx: selectedSfx = null, hostSpeech = null, throwOnError = false }:
+      { persona?: Persona | null; meta?: TurnMeta; pauseTalkEligible?: boolean; sfx?: string | null; hostSpeech?: HostSpeechStamp | null; throwOnError?: boolean } = {},
   ): Promise<AnnounceOutcome> {
     const safeText = normalizeForDisplay(text || '');
     if (!safeText) return { accepted: false, deferred: false, completed: Promise.resolve(false) };
@@ -2160,6 +2160,7 @@ class Queue {
       return { accepted: true, deferred: false, completed };
     } catch (err) {
       this.log('error', `Announce failed: ${(err as Error).message}`);
+      if (throwOnError) throw err;
       return { accepted: false, deferred: false, completed: Promise.resolve(false) };
     }
   }

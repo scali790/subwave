@@ -1,3 +1,4 @@
+import { operationSignal, currentOperation } from '../core/operation.js';
 // Provider registry: resolves and caches the LanguageModel for `settings.llm`.
 // Every model call goes through here; call sites never name a provider.
 // `ollama` is the default and needs no key; cloud providers are opt-in.
@@ -41,7 +42,14 @@ export function debugFetch(url: any, init: any) {
       }
     } catch { /* capture must never break a model call */ }
   }
-  return fetch(url, init);
+  const signal = operationSignal(init?.signal ?? (url instanceof Request ? url.signal : undefined));
+  signal?.throwIfAborted();
+  // The same request id reaches the private gateway; never copy provider keys
+  // into logs. Existing explicit headers remain authoritative.
+  const requestId = currentOperation()?.id;
+  const headers = new Headers(init?.headers ?? (url instanceof Request ? url.headers : undefined));
+  if (requestId) headers.set('X-Request-ID', requestId);
+  return fetch(url, { ...init, headers, ...(signal ? { signal } : {}) });
 }
 
 // llama.cpp / vLLM / LM Studio honour chat_template_kwargs.enable_thinking=false;

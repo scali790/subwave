@@ -13,6 +13,7 @@
 // a guessed repair.
 
 import * as settings from '../../../settings.js';
+import { speechBudget } from './speech-budget.js';
 import { djText } from '../strategy/text.js';
 import { trackEraYear } from '../../../music/show-filter.js';
 import { trackFeel } from './track-feel.js';
@@ -158,6 +159,7 @@ export function germanRadioSystem(persona: any): string {
     '- Kreative subjektive Reaktionen sind erlaubt, wenn sie klar als Eindruck und nicht als Fakt formuliert sind.',
     '- Künstlernamen, Songtitel, Sender- und Ortsnamen aus den Fakten müssen exakt geschrieben werden.',
     house ? `\nVerbindliche Senderregeln:\n${house}` : '',
+    speechBudget(persona),
   ].filter(Boolean).join('\n');
 }
 

@@ -23,6 +23,7 @@
 
 import { z } from 'zod';
 import * as settings from '../settings.js';
+import { withLlmBudget } from '../llm/internal/core/operation.js';
 import * as session from './session.js';
 import * as picker from '../music/picker.js';
 import { resolveShowPlaylistPool, resolveExcludedPlaylistIds } from '../music/show-playlist.js';
@@ -704,7 +705,7 @@ export async function runTrackEvent(queue, ctx, { wantLink, showAt = null, pickA
   pickAnchor?: any | null;
   anchorPrior?: any | null;
 }) {
-  return withTrace({ kind: 'track-event', wantLink }, async () => {
+  return withLlmBudget(settings.get().llm?.agentTimeoutMs ?? 45_000, () => withTrace({ kind: 'track-event', wantLink }, async () => {
     // Daily token cap. At the hard cap we make NO model call: skip the pick and
     // let Liquidsoap fall through to the LLM-free auto playlist (music keeps
     // playing). In the soft tier we still pick — the stream needs a next track —
@@ -837,7 +838,7 @@ export async function runTrackEvent(queue, ctx, { wantLink, showAt = null, pickA
       }
     }
     await pickViaPool(queue, ctx, { wantLink, pickAnchor, showAt }, rankTarget, audioWaypoint);
-  });
+  }));
 }
 
 // ---------------------------------------------------------------------------

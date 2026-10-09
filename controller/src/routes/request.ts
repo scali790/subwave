@@ -2,6 +2,7 @@
 // pick cascade, intro generation and enqueue run in the background, and
 // GET /request/:id reports the outcome.
 import express from 'express';
+import { withLlmBudget } from '../llm/internal/core/operation.js';
 import { randomUUID } from 'node:crypto';
 import * as subsonic from '../music/subsonic.js';
 import * as dj from '../llm/dj.js';
@@ -215,6 +216,10 @@ function withWaitNotice(ack: string | null | undefined, trackId: string | null |
 }
 
 async function resolveRequest(entry) {
+  return withLlmBudget(settings.get().llm?.agentTimeoutMs ?? 45_000, () => resolveRequestWithinBudget(entry));
+}
+
+async function resolveRequestWithinBudget(entry) {
   const { requester, text } = entry;
   entry.startedAt = Date.now();
 
