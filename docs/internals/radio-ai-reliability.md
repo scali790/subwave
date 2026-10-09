@@ -37,7 +37,8 @@ outages still use the established rescue chain. `GET /settings` exposes
 `operation.ts` owns the monotonic deadline and cancellation signal shared by
 text/object/agent calls, retries, schema/tool recovery and optional failover.
 Track decisions and listener request resolution share it across agent-to-pool
-recovery. Only model calls race cancellation; deterministic music selection and
+recovery. German writer/reviewer pipelines share it too; the pinned optional
+Ollama reviewer uses the same availability/cooldown gate. Only model calls race cancellation; deterministic music selection and
 queue writes remain awaited, preventing detached late enqueue work. The budget
 uses `llm.agentTimeoutMs` (default 45s). Pinned bulk/editorial calls retain their
 existing policy unless already inside a shared operation. HTTP cancellation

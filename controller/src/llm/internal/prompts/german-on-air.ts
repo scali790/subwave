@@ -15,6 +15,10 @@
 import * as settings from '../../../settings.js';
 import { speechBudget } from './speech-budget.js';
 import { djText } from '../strategy/text.js';
+import { withinOperation } from '../core/operation.js';
+import { fallbackAvailability } from '../core/fallback-availability.js';
+import { ollamaBaseUrl } from '../provider/registry.js';
+import { isUnreachable } from '../core/pure.js';
 import { trackEraYear } from '../../../music/show-filter.js';
 import { trackFeel } from './track-feel.js';
 import { stripRecapSpokenTags, stripSpokenTags } from './recent-speech.js';
@@ -612,7 +616,14 @@ export async function reviewGermanOnAirText(args: {
       return { text: '', verdict: 'drop', reason };
     }
 
-    const raw = await djText({
+    const cfg = leg === 'fallback' ? settings.get().llm.fallback : settings.get().llm;
+    const endpoint = ollamaBaseUrl(cfg);
+    const raw = await withinOperation(settings.get().llm?.agentTimeoutMs ?? 45_000, async () => {
+      try {
+        if (!await fallbackAvailability.ready(cfg, endpoint)) {
+          throw new Error('local Ollama reviewer unavailable or model missing');
+        }
+        return await djText({
       system: REVIEW_SYSTEM,
       prompt: germanQualityReviewPrompt({ ...args, draft }),
       temperature: 0.1,
@@ -621,6 +632,11 @@ export async function reviewGermanOnAirText(args: {
       maxOutputTokens: 220,
       kind: `onAirQuality.${args.kind}`,
       leg,
+        });
+      } catch (err) {
+        if (isUnreachable(err)) fallbackAvailability.failed({ ...cfg, ollamaUrl: endpoint });
+        throw err;
+      }
     });
 
     const decision = parseGermanQualityDecision(raw);

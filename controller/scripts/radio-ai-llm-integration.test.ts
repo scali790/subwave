@@ -52,6 +52,14 @@ test('SDK transport: NIM 424 preserves cause, offline backup cools down, deadlin
     assert.ok(performance.now() - started < 600);
     assert.equal(aborts, 1);
     assert.equal(tags, 1, 'no fallback after the total deadline');
+    // The pinned German reviewer used to bypass ordinary primary/fallback
+    // admission. Its unavailable host must now share this same cooldown.
+    const { reviewGermanOnAirText } = await import('../src/llm/internal/prompts/german-on-air.js');
+    const reviewed = await reviewGermanOnAirText({ kind: 'link', draft: 'Guten Abend.', context: {} });
+    assert.equal(reviewed.verdict, 'drop');
+    assert.match(reviewed.reason, /reviewer unavailable/);
+    assert.equal(tags, 1);
+    assert.equal(generations, 0);
   } finally {
     globalThis.fetch = original;
     // Observability writes are asynchronous and best effort.

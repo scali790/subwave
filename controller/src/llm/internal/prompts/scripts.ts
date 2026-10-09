@@ -5,6 +5,7 @@
 
 import * as settings from '../../../settings.js';
 import { djText } from '../strategy/text.js';
+import { withLlmBudget } from '../core/operation.js';
 import { djSystem, lengthPhrase } from './system.js';
 import { buildContextLines, decoratePrompt, pickTimePhrase, randomSeed } from './context.js';
 import { speakClockAllowed } from '../../../broadcast/clock-policy.js';
@@ -235,7 +236,11 @@ export function stationIdPrompt({ context = null, persona = null }: any = {}) {
   return ctxLines.join('\n');
 }
 
-export async function generateStationId({ recap = null, context = null, recentOpeners = null, persona = null }: any = {}) {
+export async function generateStationId(args: any = {}) {
+  return withLlmBudget(settings.get().llm?.agentTimeoutMs ?? 45_000, () => generateStationIdWithinBudget(args));
+}
+
+async function generateStationIdWithinBudget({ recap = null, context = null, recentOpeners = null, persona = null }: any = {}) {
   const speaker = persona || settings.getEffectivePersona();
   const german = isGermanPersona(speaker);
   const draft = await djText({
@@ -443,6 +448,10 @@ function announceFallbackSystem(speaker: unknown): string {
 }
 
 export async function generateLink(args: any) {
+  return withLlmBudget(settings.get().llm?.agentTimeoutMs ?? 45_000, () => generateLinkWithinBudget(args));
+}
+
+async function generateLinkWithinBudget(args: any) {
   const speaker = args.persona || settings.getEffectivePersona();
   if (settings.announceLinks(speaker)) {
     const composed = announceLine(args.current?.artist, speaker, {
@@ -647,7 +656,11 @@ export function nextHourlyTimeClause(clock: any) {
   return `Say the time in natural spoken words ("two in the afternoon", "just gone eight") — never digits or 24-hour form.`;
 }
 
-export async function generateHourlyTime({ recap = null, context = null, recentOpeners = null, persona = null, showWelcome = false }: any = {}) {
+export async function generateHourlyTime(args: any = {}) {
+  return withLlmBudget(settings.get().llm?.agentTimeoutMs ?? 45_000, () => generateHourlyTimeWithinBudget(args));
+}
+
+async function generateHourlyTimeWithinBudget({ recap = null, context = null, recentOpeners = null, persona = null, showWelcome = false }: any = {}) {
   const speaker = persona || settings.getEffectivePersona();
   const german = isGermanPersona(speaker);
 
