@@ -1,3 +1,4 @@
+import { operationSignal } from './operation.js';
 // Retry + deadline wrappers around a single LLM generation.
 //
 //   withTransientRetry — retries the SAME call on transient upstream blips.
@@ -65,10 +66,12 @@ export async function withTransientRetry<T>(
   fn: () => Promise<T>,
   signal?: AbortSignal,
 ): Promise<T> {
+  signal = operationSignal(signal);
   const delays = [500, 1500]; // ms — two retries, ~2s total budget
   let lastErr: any;
   for (let attempt = 0; attempt <= delays.length; attempt++) {
     try {
+      signal?.throwIfAborted();
       return await fn();
     } catch (err) {
       lastErr = err;

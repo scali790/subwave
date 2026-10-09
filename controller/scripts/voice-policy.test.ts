@@ -24,9 +24,11 @@ const root = mkdtempSync(join(tmpdir(), 'subwave-voice-'));
 process.env.STATE_DIR = root;
 
 const settings = await import('../src/settings.js');
-const { voiceEnabled, autoVoiceAllowed, voiceStatus } = await import('../src/broadcast/voice-policy.js');
+const { voiceEnabled, autoVoiceAllowed, musicOnlyShowActive, voiceStatus } = await import('../src/broadcast/voice-policy.js');
 const { shouldFire } = await import('../src/broadcast/dj-gate.js');
 const { requestSchema } = await import('../src/broadcast/dj-agent/schemas.js');
+const { setStationTimezone } = await import('../src/time.js');
+setStationTimezone('UTC');
 
 // requestSchema() is now wrapped in modelTolerant (z.preprocess) — see the C1
 // chat-escape work (Task 5) — so the plain ZodObject's `.shape` sits one level
@@ -48,7 +50,7 @@ const MINUTES = [0, 7, 15, 20, 30, 45, 50, 59];
 function atMinute(m: number): Date {
   // Fixed date so the hourly gate's even/odd-hour rung is deterministic; hour 10
   // is even, so a 'quiet' persona would fire the hourly check here if allowed.
-  return new Date(2026, 0, 15, 10, m, 0);
+  return new Date(Date.UTC(2026, 0, 15, 10, m, 0));
 }
 
 try {
@@ -100,6 +102,41 @@ try {
   const resumed = MINUTES.flatMap(m => KINDS.map(k => ({ k, m })))
     .filter(({ k, m }) => shouldFire(k, atMinute(m)));
   assert.deepEqual(resumed, liveSlots, 'flipping back restores the exact same slots');
+
+  // ── Show-scoped music-only: global voice stays ON, automation goes quiet ──
+  const musicOnlyAt = atMinute(15);
+  const musicOnlyShowId = 's_musiconly';
+  const week: (string | null)[][] = Array.from({ length: 7 }, () => Array(24).fill(null));
+  week[musicOnlyAt.getUTCDay()][musicOnlyAt.getUTCHours()] = musicOnlyShowId;
+  // Pin the station timezone THROUGH settings.update(), not only through the
+  // process-local time helper above. update() reapplies next.timezone after every
+  // save; without this field the test silently fell back to the container TZ
+  // (UTC in CI, Europe/Zurich in production) and resolved a different hour.
+  await settings.update({
+    timezone: 'UTC',
+    shows: [{
+      id: musicOnlyShowId,
+      name: 'Music Only',
+      personaId: settings.get().personas[0].id,
+      tags: ['music-only'],
+    }],
+    schedule: week,
+  });
+  assert.equal(voiceEnabled(), true, 'music-only does not disable the station-wide voice switch');
+  assert.equal(musicOnlyShowActive(musicOnlyAt), true, 'music-only tag resolves from the scheduled show');
+  assert.equal(autoVoiceAllowed(musicOnlyAt), false, 'music-only show refuses autonomous voice');
+
+  for (const k of KINDS) {
+    assert.equal(
+      shouldFire(k, musicOnlyAt),
+      false,
+      `music-only show must gag ${k} before generation`,
+    );
+  }
+
+  const outsideMusicOnly = new Date(Date.UTC(2026, 0, 15, 11, 15, 0));
+  assert.equal(musicOnlyShowActive(outsideMusicOnly), false, 'tag applies only inside the scheduled show');
+  assert.equal(autoVoiceAllowed(outsideMusicOnly), true, 'autonomous voice resumes outside music-only');
 
   // ── Validation: only a boolean is accepted ─────────────────────────────────
   await assert.rejects(

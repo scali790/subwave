@@ -25,7 +25,7 @@ import { buildSegmentTools, fetchSegmentData, dataBlock } from '../llm/segment-t
 import { recordCuriosity, recentAiredCuriosity } from './curiosity.js';
 import { loadedCapabilities } from './loader.js';
 import { skillEligible } from './eligibility.js';
-import { requiresGrounding, standDownReason } from './abstain-policy.js';
+import { forcedRunUsesDirectDataPath, requiresGrounding, standDownReason } from './abstain-policy.js';
 import { runCohostedCapability } from './cohosted.js';
 import * as sfx from '../broadcast/sfx.js';
 
@@ -752,11 +752,12 @@ export async function runCapability(
   };
 
   let object: { reason?: string; air?: boolean; text?: string; sfx?: string | null } | undefined;
-  if (!settings.get().llm?.pickerAgent) {
-    // Pool mode: fetch the data directly, one structured call. A skill that
-    // writes from the moment survives a failed fetch (it writes from the brief
-    // and the moment alone); a GROUNDED skill does not, since its whole segment
-    // was to be about what the fetch didn't return, so there is no model call.
+  const pickerAgent = !!settings.get().llm?.pickerAgent;
+  if (forcedRunUsesDirectDataPath(cap, pickerAgent)) {
+    // Pool mode fetches directly as before. Agent mode does the same only for a
+    // deterministic grounded cron-only skill with no agent-steerable inputs:
+    // there is no tool-choice work for the model to do, and an unavailable
+    // source must stand down before an agent deadline can turn silence into 500.
     const data = await fetchSegmentData(cap, ctx, segmentState);
     const blocked = standDownReason(cap, data);
     if (blocked) return standDown(blocked);

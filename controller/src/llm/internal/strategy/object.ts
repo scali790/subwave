@@ -1,3 +1,4 @@
+import { operationSignal } from '../core/operation.js';
 // djObject — schema-validated structured output. `schema` is a Zod object
 // schema; the returned value is parsed and validated.
 //
@@ -77,6 +78,7 @@ export async function djObject({
       // structured-output branch is breaking in /stats.
       let lastVia;
       for (let attempt = 1; attempt <= 2; attempt++) {
+        operationSignal(signal)?.throwIfAborted();
         try {
           let object;
           let usage;
@@ -168,5 +170,6 @@ export async function djObject({
       throw lastErr;
     },
     leg,
+    { signal },
   );
 }

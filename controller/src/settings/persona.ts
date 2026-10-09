@@ -207,6 +207,12 @@ function resolveShowShape(show, s) {
     fadeAtShowEnd: typeof show.fadeAtShowEnd === 'boolean' ? show.fadeAtShowEnd : null,
     // Explicit opt-in; an older persisted show keeps ordinary ducked speech.
     pauseTalk: show.pauseTalk === true,
+    // Show tags are policy-bearing metadata too. In particular, broadcast/
+    // voice-policy.ts reads the generic `music-only` tag before any autonomous
+    // LLM/TTS work starts.
+    tags: Array.isArray(show.tags)
+      ? show.tags.filter((tag: unknown) => typeof tag === 'string')
+      : [],
     // Navidrome playlist anchor: the union of these playlists becomes the show's
     // candidate pool (music/show-playlist.ts). playlistStrict makes it the show's
     // entire universe; soft just lets it dominate. Empty array = no anchor.

@@ -8,6 +8,8 @@
 // helpers below roll those rings (plus the DJ-log ring) into the shape the
 // /stats route returns.
 
+import { logEvent } from './observability/events.js';
+
 const MAX_TTS_CALLS = 120;
 export const ttsCalls: any[] = [];
 
@@ -20,6 +22,11 @@ export const ttsCalls: any[] = [];
 export function recordTts(call: any) {
   ttsCalls.unshift(call);
   if (ttsCalls.length > MAX_TTS_CALLS) ttsCalls.length = MAX_TTS_CALLS;
+  logEvent('tts', { requestId: call.requestId, kind: call.kind,
+    requested: call.requested, engine: call.engine, fellBack: call.fellBack,
+    ok: call.ok, ms: call.ms, chars: call.chars,
+    primary_error_code: call.primary_error_code, http_status: call.http_status,
+    actual_chars: call.actual_chars, max_chars: call.max_chars });
 }
 
 // --- generic helpers ----------------------------------------------------

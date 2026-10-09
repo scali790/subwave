@@ -2,6 +2,8 @@
 // override and an automatic fallback if the chosen engine fails. Every caller
 // goes through here, never an engine module directly.
 
+import { randomUUID } from 'node:crypto';
+import { validateSpeech, SpeechRequestError, speechFailure } from './tts-contract.js';
 import * as piper from './piper.js';
 import * as kokoro from './kokoro.js';
 import { applyEdgeFades } from './wav-edges.js';
@@ -398,22 +400,29 @@ export async function speak(
   // Shared fields for every recordTts() outcome below. `text` is capped so the
   // ring buffer stays small (the admin debug panel polls the whole ring ~2s).
   const callBase = {
-    kind, requested, chars,
+    kind, requested, chars, requestId: randomUUID(),
     text: (speakText || '').slice(0, 240),
     persona: GLOBAL_VOICE_KINDS.has(kind) ? null : (personaFor(persona)?.name || null),
   };
   try {
-    const result = await speakWith(primary, primaryText, { outPath, speedScale: scale, language, soul }, primaryPersonaTts);
+    if (requested === 'remote') validateSpeech(speakText, remoteTts.constraints(), personaTts?.voice);
+    const result = await speakWith(primary, primaryText, { outPath, speedScale: scale, language, soul, requestId: callBase.requestId }, primaryPersonaTts);
     // Bake 40ms edge fades in so hard file boundaries never reach the broadcast
     // compressor as a click. Render time is the only place the tail can be
     // faded. Best-effort: non-WAV output (cloud mp3) is left as-is.
     if (typeof result === 'string') await applyEdgeFades(result);
     recordTts({
       ...callBase, engine: primary, fellBack: primaryFellBack,
+      ...(primaryFellBack ? { primary_error_code: 'primary_unavailable' } : {}),
       ok: true, ms: Date.now() - started, t: new Date().toISOString(),
     });
     return result;
   } catch (err) {
+    if (err instanceof SpeechRequestError) {
+      recordTts({ ...callBase, engine: primary, fellBack: false, ok: false,
+        ms: Date.now() - started, error: err.message, ...speechFailure(err), t: new Date().toISOString() });
+      throw err;
+    }
     // Primary passed the pre-flight gate but threw mid-render: walk the chain.
     const chain = fallbackChain(ttsTarget(primary, primaryPersonaTts));
     if (!chain.length) {
@@ -435,21 +444,26 @@ export async function speak(
         // the credentials the chain probe just rejected. What rides is the
         // slot's own override (null for hardcoded rungs, the operator's
         // engine+voice for their configured one), so probe and call agree.
-        const result = await speakWith(fallback, rescueText, { outPath, speedScale: scale, language, soul }, slot.personaTts);
+        const result = await speakWith(fallback, rescueText, { outPath, speedScale: scale, language, soul, requestId: callBase.requestId }, slot.personaTts);
         if (typeof result === 'string') await applyEdgeFades(result);
         recordTts({
-          ...callBase, engine: fallback, fellBack: true,
+          ...callBase, ...speechFailure(err), engine: fallback, fellBack: true,
           ok: true, ms: Date.now() - started, t: new Date().toISOString(),
         });
         return result;
       } catch (err2) {
+        if (err2 instanceof SpeechRequestError) {
+          recordTts({ ...callBase, ...speechFailure(err2), engine: fallback, fellBack: true,
+            ok: false, ms: Date.now() - started, error: err2.message, t: new Date().toISOString() });
+          throw err2;
+        }
         lastErr = err2;
         lastEngine = fallback;
       }
     }
     // Every rescue failed too — record against the last engine attempted.
     recordTts({
-      ...callBase, engine: lastEngine, fellBack: true,
+      ...callBase, ...speechFailure(err), engine: lastEngine, fellBack: true,
       ok: false, ms: Date.now() - started, error: lastErr.message,
       t: new Date().toISOString(),
     });
@@ -460,6 +474,8 @@ export async function speak(
 // Re-exported: every engine writes WAVs into piper's output dir, so cleanup is
 // engine-agnostic and callers need not know which engine wrote the file.
 export { cleanupOldVoices } from './piper.js';
+
+export const remoteConstraints = remoteTts.constraints;
 
 export function availableEngines() {
   return {

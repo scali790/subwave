@@ -12,7 +12,7 @@ import { talkSlot, openMinuteFor } from './talk-scheduler.js';
 export function shouldFire(kind, now = new Date()) {
   // Voice switch sits above the ladder: it isn't a cadence. Manual
   // /dj/segment triggers never reach here, so they stay exempt.
-  if (!autoVoiceAllowed()) return false;
+  if (!autoVoiceAllowed(now)) return false;
 
   // effectiveFrequency bumps a DJ-mode persona one rung up the ladder.
   const f = settings.effectiveFrequency(settings.getEffectivePersona(now));
