@@ -13,6 +13,7 @@ This file is loaded into **every** session, so it holds only what you need befor
 | Working on | Read |
 | --- | --- |
 | `controller/src/**` | [`controller/CLAUDE.md`](controller/CLAUDE.md) (module-by-module) |
+| LLM structured-output retries / failover | [`docs/llm-structured-recovery.md`](docs/llm-structured-recovery.md) (format repair versus upstream failure; Linux validation) |
 | `liquidsoap/radio.liq` | [`liquidsoap/CLAUDE.md`](liquidsoap/CLAUDE.md) (pipeline order + every radio.liq rule) |
 | `web/**` | [`web/CLAUDE.md`](web/CLAUDE.md) (routes, skin contract, API defaults) |
 | `app/**` | [`app/CLAUDE.md`](app/CLAUDE.md) + [`app/docs/TESTING.md`](app/docs/TESTING.md) |
