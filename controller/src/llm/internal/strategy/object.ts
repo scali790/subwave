@@ -30,7 +30,7 @@ import {
   stripThinking, extractJson, usageOf, perfOf, warningsOf, failureDiagnostics, schemaHint,
   isTransient, isUnreachable, isQuotaOrAuthError, isUpstreamOverloaded, isRateLimited,
 } from '../core/pure.js';
-import { needsToolCallObject, reasoningFor, samplingWithLocalKnobs } from '../provider/capabilities.js';
+import { needsToolCallObject, prefersJsonObjectMode, reasoningFor, samplingWithLocalKnobs } from '../provider/capabilities.js';
 import { objectViaToolCall } from './object-via-tool.js';
 import { resolveMaxOutputTokens } from '../../../settings.js';
 
@@ -85,7 +85,7 @@ export async function djObject({
           let usage;
           let perf;
           let warnings;
-          if (attempt === 1 && needsToolCallObject(l.cfg)) {
+          if (attempt === 1 && needsToolCallObject(l.cfg) && !prefersJsonObjectMode(l.cfg)) {
             lastVia = 'ai-sdk:tool';
             ({ object, usage, perf, warnings } = await withTransientRetry(kind,
               () => objectViaToolCall(l, { system, prompt, schema, temperature, maxOutputTokens, signal }), signal));
@@ -97,7 +97,8 @@ export async function djObject({
               // Appended to the PROMPT, not to `system` — same placement as the
               // recovery branch below, and it leaves the caller's system prompt
               // byte-identical (the tagger hashes its own into prompt_hash).
-              prompt: `${prompt}\n\n${NATIVE_JSON_INSTRUCTION}`,
+              prompt: `${prompt}\n\n${NATIVE_JSON_INSTRUCTION}`
+                + (prefersJsonObjectMode(l.cfg) ? `\nJSON Schema: ${schemaHint(schema)}` : ''),
               temperature,
               maxOutputTokens,
               output: Output.object({ schema }),

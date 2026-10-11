@@ -74,6 +74,10 @@ Windows failures were not used as the Linux baseline.
 
 ## Request budget and rollout boundary
 
+The [11 October primary repair](nim-primary-budget.md) adds the shared provider
+deadline and qualifies Nemotron JSON-object mode. It includes this recovery fix;
+its source qualification does not retroactively activate production settings.
+
 This repair removes the extra format attempt after an upstream failure; it does
 not make an unavailable fallback available. A primary 424 now reaches existing
 fallback admission after one primary attempt. Existing transient retries still

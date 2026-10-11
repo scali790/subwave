@@ -1,4 +1,5 @@
 import { operationSignal, currentOperation } from '../core/operation.js';
+import { remainingUpstreamBudget } from './upstream-budget.js';
 // Provider registry: resolves and caches the LanguageModel for `settings.llm`.
 // Every model call goes through here; call sites never name a provider.
 // `ollama` is the default and needs no key; cloud providers are opt-in.
@@ -13,7 +14,7 @@ import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 import { config } from '../../../config.js';
 import * as settings from '../../../settings.js';
 import { recordRawRequest, rawDebugEnabled } from '../telemetry/raw-debug.js';
-import { capabilitiesFor, appliedRepeatPenalty, appliedNumCtx } from './capabilities.js';
+import { capabilitiesFor, appliedRepeatPenalty, appliedNumCtx, prefersJsonObjectMode } from './capabilities.js';
 
 // Built clients, keyed by a signature covering every field captured at
 // construction, so a settings edit is picked up with no explicit invalidation.
@@ -48,6 +49,7 @@ export function debugFetch(url: any, init: any) {
   // into logs. Existing explicit headers remain authoritative.
   const requestId = currentOperation()?.id;
   const headers = new Headers(init?.headers ?? (url instanceof Request ? url.headers : undefined));
+  remainingUpstreamBudget(headers);
   if (requestId) headers.set('X-Request-ID', requestId);
   return fetch(url, { ...init, headers, ...(signal ? { signal } : {}) });
 }
@@ -98,6 +100,11 @@ export function openAICompatibleFetch(cfg: any, baseFetch: any = fetch, forceNoT
     if (init?.body && typeof init.body === 'string') {
       try {
         const body = JSON.parse(init.body);
+        // The object strategy includes the schema in its prompt and validates
+        // the returned JSON with Zod. Keep tools intact for actual agents.
+        if (prefersJsonObjectMode(cfg) && !body.tools?.length && body.response_format?.type === 'json_schema') {
+          body.response_format = { type: 'json_object' };
+        }
         if (penalty != null && body.repeat_penalty === undefined) {
           body.repeat_penalty = penalty;
         }
