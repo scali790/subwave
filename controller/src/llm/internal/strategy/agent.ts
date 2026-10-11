@@ -30,6 +30,9 @@ import { objectViaToolCall } from './object-via-tool.js';
 import { agentPlan } from './plan.js';
 import { resolveMaxOutputTokens } from '../../../settings.js';
 import { recordAgentRetry } from '../telemetry/log.js';
+import { operationSignal } from '../core/operation.js';
+
+const AGENT_ACTION_INSTRUCTION = 'This turn performs a task through tools; it is not an on-air conversation. Earlier assistant messages are history, not a script to continue. Call an available discovery tool first. Once results are available, call done with the complete answer matching its schema. Any requested spoken fields belong inside that result, not in a free-text reply. Never narrate a selection or invent tool results.';
 
 // Loose views of an AI SDK ToolLoopAgent generate result — only the fields the
 // cascade reads. `AgentLike` is the minimal surface runDeadlined needs.
@@ -182,11 +185,9 @@ export async function djAgent({
   kind = 'sdk.djAgent',
   timeoutMs,
   providerDiscoveryBudget = false,
-  // Caller acceptance check on the NATIVE path's object only — that branch
-  // validates schema shape, not content, so a fabricated-but-well-formed answer
-  // would otherwise sail through. A miss falls through to the done-tool path.
-  // Not applied to done-tool/recovery results: the caller repairs those itself
-  // with the full `seen` context.
+  // Caller acceptance check on every completion channel. Native misses retain
+  // their existing done-tool recovery; final misses return to the caller's
+  // stateless fallback. A structured answer alone does not establish grounding.
   validate,
 }: DjAgentOptions): Promise<{ object: unknown; steps: number; toolCalls: ToolCallSummary[] }> {
   return withFailover(
@@ -204,6 +205,20 @@ export async function djAgent({
       let lastVia = 'ai-sdk:agent';
       // One shared wall-clock ceiling for every attempt below.
       const deadlineAt = timeoutMs ? Date.now() + timeoutMs : undefined;
+      // Tokens spent across EVERY leg below. Each is a separate billable call
+      // and `result` is reassigned between them, so a single usageOf(result)
+      // at the end would count only the last one. This sum is what
+      // telemetry/log.ts records and what the daily token cap counts against.
+      let spentUsage = { input: 0, output: 0, total: 0 };
+      const addUsage = (u: { input: number; output: number; total: number }) => {
+        spentUsage = {
+          input: spentUsage.input + u.input,
+          output: spentUsage.output + u.output,
+          total: spentUsage.total + u.total,
+        };
+      };
+
+      const allSteps: StepLike[] = [];
       try {
         // No discovery tools + a model that ignores JSON mode: no loop to run,
         // and ToolLoopAgent + Output.object would throw NoObjectGeneratedError.
@@ -221,19 +236,6 @@ export async function djAgent({
             extra: { system, messages, toolCalls: [], steps: 0, response: JSON.stringify(object, null, 2) },
           };
         }
-
-        // Tokens spent across EVERY leg below. Each is a separate billable call
-        // and `result` is reassigned between them, so a single usageOf(result)
-        // at the end would count only the last one. This sum is what
-        // telemetry/log.ts records and what the daily token cap counts against.
-        let spentUsage = { input: 0, output: 0, total: 0 };
-        const addUsage = (u: { input: number; output: number; total: number }) => {
-          spentUsage = {
-            input: spentUsage.input + u.input,
-            output: spentUsage.output + u.output,
-            total: spentUsage.total + u.total,
-          };
-        };
 
         // Native-first structured output. A miss falls through to the done-tool
         // path below; lastVia stays ':native' so the record attributes there.
@@ -310,7 +312,7 @@ export async function djAgent({
           // useDoneTool legs force tool calls → no-think model; the schema-only
           // and free-text legs keep the operator's reasoning choice.
           model: useDoneTool ? (leg.noThinkModel ?? leg.model) : leg.model,
-          instructions: system,
+          instructions: useDoneTool ? `${system}\n\n${AGENT_ACTION_INSTRUCTION}` : system,
           tools: allTools,
           stopWhen: [isStepCount(effectiveMaxSteps), hasToolCall('done')],
           temperature,
@@ -325,6 +327,7 @@ export async function djAgent({
         } as any);
         let result = await runDeadlined(deadlineAt, kind, 'agent run', agent, messages);
         let steps = result.steps?.length ?? 0;
+        allSteps.push(...(result.steps || []));
         addUsage(usageOf(result));
 
         // The trail belongs to the MAIN run: `result` is reassigned by the
@@ -368,7 +371,8 @@ export async function djAgent({
           const recoveryMessages = priorMessages.length ? [...messages, ...priorMessages] : messages;
           result = await runDeadlined(deadlineAt, kind, 'agent recovery',
             buildRecoveryAgent(leg, system, allTools, temperature, maxOutputTokens, forcedChoice), recoveryMessages);
-          steps = result.steps?.length ?? 0;
+          steps += result.steps?.length ?? 0;
+          allSteps.push(...(result.steps || []));
           addUsage(usageOf(result));
           captureTrail(result);
           noteIfDeclined('recovery', result);
@@ -387,7 +391,8 @@ export async function djAgent({
               const prompt = renderTerminalPrompt(messages, discoveryTrail);
               const t = await runDeadlinedCall(deadlineAt, kind, 'agent terminal collapse',
                 (signal) => objectViaToolCall(leg, {
-                  system, prompt, schema, temperature, maxOutputTokens, signal,
+                  system: `${system}\n\nComplete the structured task using the supplied findings. This is not speech for broadcast; do not continue the earlier conversation.`,
+                  prompt, schema, temperature, maxOutputTokens, signal, allowText: true,
                 }));
               terminalObject = t.object;
               addUsage(t.usage);
@@ -395,11 +400,16 @@ export async function djAgent({
               // A real model call the record should count.
               steps += 1;
             } catch (e) {
+              operationSignal()?.throwIfAborted();
+              if ((e as Error).name === 'AgentDeadlineError') throw e;
+              addUsage(usageOf({ usage: (e as AgentFailureError).usage as TokenUsage }));
+              allSteps.push(...((e as AgentFailureError).steps as StepLike[] || []));
+              steps += 1;
               // Text salvage below still gets a shot, then the caller's pool
               // fallback, so log and carry on rather than throwing past both.
               const why = (e as Error)?.message || String(e);
               console.log(`[${kind}] terminal collapse failed (${why}) — falling through to text salvage`);
-              declinedAttempts.push(`[terminal] ${why}`);
+              declinedAttempts.push(`[terminal] ${why}${(e as AgentFailureError).text ? `\n${(e as AgentFailureError).text}` : ''}`);
             }
           }
         }
@@ -410,7 +420,7 @@ export async function djAgent({
           // calls that weren't executed (like our no-execute `done`) here.
           const doneCall = (result.staticToolCalls || []).find((c) => c.toolName === 'done');
           if (doneCall) {
-            object = doneCall.input;
+            object = schema!.parse(doneCall.input);
           } else if (terminalObject !== undefined) {
             // objectViaToolCall already Zod-parsed it, so it lands here
             // schema-valid, same as a done call.
@@ -429,7 +439,7 @@ export async function djAgent({
               // Spend across every leg, in the raw TokenUsage shape
               // failureDiagnostics feeds to usageOf.
               err.usage = { inputTokens: spentUsage.input, outputTokens: spentUsage.output, totalTokens: spentUsage.total };
-              err.steps = result.steps;
+              err.steps = allSteps;
               throw err;
             }
           }
@@ -437,6 +447,14 @@ export async function djAgent({
           object = result.output;
         } else {
           object = stripThinking(result.text);
+        }
+
+        // Ground all completion channels, including terminal JSON, against the
+        // caller's real discovery set. Schema validity alone cannot prove an ID.
+        if (validate && !validate(object)) {
+          throw Object.assign(new Error('agent result rejected by caller validation'), {
+            steps: allSteps, usage: { inputTokens: spentUsage.input, outputTokens: spentUsage.output, totalTokens: spentUsage.total },
+          });
         }
 
         // Carried from the main run rather than re-read off `result`.
@@ -457,6 +475,15 @@ export async function djAgent({
           },
         };
       } catch (err) {
+        const failure = err as AgentFailureError;
+        // Transport/deadline failures in recovery also retain completed work.
+        // Final validation errors already carry this exact accumulated array.
+        if (failure.steps !== allSteps) {
+          addUsage(usageOf({ usage: failure.usage as TokenUsage }));
+          if (Array.isArray(failure.steps)) allSteps.push(...failure.steps);
+        }
+        failure.steps = allSteps;
+        if (spentUsage.total) failure.usage = { inputTokens: spentUsage.input, outputTokens: spentUsage.output, totalTokens: spentUsage.total };
         // Attribute to the path actually attempted; withFailover writes the
         // record and decides whether a host-unreachable error tries the backup.
         (err as { __via?: string }).__via = lastVia;

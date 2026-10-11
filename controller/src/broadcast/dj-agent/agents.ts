@@ -51,9 +51,7 @@ export const pickerAgent = defineAgent<PickerRunArgs, PickerExtras>({
     const { tools, seen } = buildPickerTools(scope);
     return { tools, extras: { seen } };
   },
-  // Native-path acceptance: the picked id must be one a discovery tool
-  // surfaced this run. A fabricated id falls through to the done-tool harness
-  // instead of surfacing as an unknown-id rejection.
+  // Every completion channel must choose an actual discovered candidate.
   validateObject: (object, extras) => !!(object?.id && extras?.seen?.has(object.id)),
 });
 
@@ -76,7 +74,8 @@ export const requestAgent = defineAgent<RequestRunArgs, PickerExtras>({
     });
     return { tools, extras: { seen } };
   },
-  // Same native-path acceptance as pickerAgent.
-  validateObject: (object, extras) => !!(object?.id && extras?.seen?.has(object.id)),
+  // Chat deliberately has no selection. Music requests still need a real ID.
+  validateObject: (object, extras) => (object?.kind === 'chat' && object?.id === null)
+    || !!(object?.id && extras?.seen?.has(object.id)),
 });
 
