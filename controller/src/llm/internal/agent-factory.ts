@@ -40,9 +40,9 @@ export interface AgentDefinition<TArgs = Record<string, any>, TExtras = any> {
   timeoutMs?: number | (() => number);
   temperature?: number;
   maxOutputTokens?: number;
-  // Acceptance check on the native path's object, given this run's buildTools
-  // extras (the picker checks its chosen id against the `seen` map). A miss
-  // falls the run through to the done-tool harness — see djAgent's validate.
+  // Acceptance check on every completion, given this run's buildTools extras
+  // (the picker checks its ID against `seen`; requests also allow explicit chat).
+  // Native misses retain their recovery; final misses fall back to the caller.
   validateObject?: (object: any, extras: TExtras) => boolean;
   // Follow the leg's per-provider discovery budget instead of the single
   // historical step — see DjAgentOptions.providerDiscoveryBudget in

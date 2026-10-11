@@ -7,7 +7,8 @@
 // branches.
 
 import { generateText, tool, isStepCount } from 'ai';
-import { usageOf, perfOf, warningsOf } from '../core/pure.js';
+import { usageOf, perfOf, warningsOf, extractJson, stripThinking } from '../core/pure.js';
+import { operationSignal } from '../core/operation.js';
 import { reasoningFor, forcedToolChoice } from '../provider/capabilities.js';
 
 // The TRANSPORT rule for this path, stated in the system channel because that
@@ -42,7 +43,7 @@ export function emitInstructions(system?: string): string {
 
 export async function objectViaToolCall(
   leg: any,
-  { system, prompt, messages, schema, temperature, maxOutputTokens, signal }: any,
+  { system, prompt, messages, schema, temperature, maxOutputTokens, signal, allowText = false }: any,
 ): Promise<{ object: any; usage: any; perf?: any; warnings?: string[] }> {
   let captured: any;
   const emit = tool({
@@ -66,8 +67,18 @@ export async function objectViaToolCall(
     toolChoice: forcedToolChoice(leg.cfg),
     stopWhen: isStepCount(1),
     reasoning: reasoningFor(leg.cfg, { forceNoThink: true }),
-    ...(signal ? { abortSignal: signal } : {}),
+    abortSignal: operationSignal(signal),
   } as any);
-  if (captured === undefined) throw new Error('model never called the emit tool');
+  if (captured === undefined && allowText && result.finishReason === 'stop') {
+    // Terminal-only salvage of this already-paid response. Never another call,
+    // never prose guessing; the agent applies its caller's grounding check.
+    try { captured = schema.parse(JSON.parse(extractJson(stripThinking(result.text)))); } catch { /* fail below */ }
+  }
+  if (captured === undefined) {
+    throw Object.assign(new Error('model never called the emit tool'), {
+      text: result.text, finishReason: result.finishReason,
+      usage: result.totalUsage ?? result.usage, steps: result.steps,
+    });
+  }
   return { object: schema.parse(captured), usage: usageOf(result), perf: perfOf(result), warnings: warningsOf(result) };
 }

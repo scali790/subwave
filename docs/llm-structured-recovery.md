@@ -74,6 +74,11 @@ Windows failures were not used as the Linux baseline.
 
 ## Request budget and rollout boundary
 
+The 11 October [Banter/agent audit](banter-agent-reliability.md) separates the
+real-provider harness from offline discovery and records a subsequent fully green
+offline suite. The dated baseline results above remain historical evidence; they
+do not describe the newer candidate's test setup or establish live acceptance.
+
 This repair removes the extra format attempt after an upstream failure; it does
 not make an unavailable fallback available. A primary 424 now reaches existing
 fallback admission after one primary attempt. Existing transient retries still
