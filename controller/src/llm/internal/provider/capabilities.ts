@@ -190,6 +190,14 @@ export function needsToolCallObject(cfg: any): boolean {
   return capabilitiesFor(cfg?.provider).objectStrategy === 'tool';
 }
 
+// NVIDIA recommends JSON-object mode plus application schema validation for
+// this model. Its forced emit path can instead return malformed tool JSON or
+// exhaust the phase. Actual agent tools keep their existing discovery strategy.
+export function prefersJsonObjectMode(cfg: any): boolean {
+  return cfg?.provider === 'openai-compatible'
+    && cfg?.model === 'nvidia/nemotron-3.5-lightning-30b-a3b';
+}
+
 // Free discovery steps this leg gets before `done` is forced.
 //
 // `settings.llm.discoverySteps` wins when set: the descriptor knows the PROVIDER

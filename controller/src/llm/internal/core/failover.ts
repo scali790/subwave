@@ -11,7 +11,8 @@
 
 import * as settings from '../../../settings.js';
 import { ollamaBaseUrl } from '../provider/registry.js';
-import { withinOperation, operationSignal, currentOperation, upstreamDiagnostic } from './operation.js';
+import { withinOperation, operationSignal, currentOperation, upstreamDiagnostic, withProviderBudget } from './operation.js';
+import { configuredUpstreamBudgetMs } from '../provider/upstream-budget.js';
 import { fallbackAvailability } from './fallback-availability.js';
 import { primaryLeg, fallbackLeg } from '../provider/legs.js';
 import { record } from '../telemetry/log.js';
@@ -106,7 +107,7 @@ async function runFailover<T>(
     if (!leg) throw new Error(`withFailover: pinned leg "${pin}" is not configured`);
     const started = Date.now();
     try {
-      const r = await attempt(leg);
+      const r = await withProviderBudget(configuredUpstreamBudgetMs(leg.cfg), () => attempt(leg));
       operationSignal()?.throwIfAborted();
       recordSuccess({ kind, started, via: `${r.via}:pinned`, model: leg.label, sampling: r.sampling, usage: r.usage, perf: r.perf, warnings: r.warnings, extra: r.extra });
       return r.value;
@@ -119,7 +120,7 @@ async function runFailover<T>(
   const primary = primaryLeg();
   const primaryStarted = Date.now();
   try {
-    const r = await attempt(primary);
+    const r = await withProviderBudget(configuredUpstreamBudgetMs(primary.cfg), () => attempt(primary));
     operationSignal()?.throwIfAborted();
     recordSuccess({ kind, started: primaryStarted, via: r.via, model: primary.label, sampling: r.sampling, usage: r.usage, perf: r.perf, warnings: r.warnings, extra: r.extra });
     return r.value;
@@ -133,13 +134,14 @@ async function runFailover<T>(
     const quotaOrAuth = isQuotaOrAuthError(err);
     const upstreamOverloaded = isUpstreamOverloaded(err);
     const rateLimited = isRateLimited(err);
-    const backup = (isUnreachable(err) || quotaOrAuth || upstreamOverloaded || rateLimited) ? fallbackLeg() : null;
+    const providerDeadline = err?.name === 'LlmProviderDeadlineError';
+    const backup = (providerDeadline || isUnreachable(err) || quotaOrAuth || upstreamOverloaded || rateLimited) ? fallbackLeg() : null;
     if (!backup) {
       logFailurePreview(kind, err);
       recordFailure({ kind, started: primaryStarted, via: primaryVia, model: primary.label, error: err?.message, extra: { ...failExtra(err), upstream: upstreamDiagnostic(err) } });
       throw err;
     }
-    const reason = quotaOrAuth ? 'refused (quota/auth)' : upstreamOverloaded ? 'upstream dependency failed' : rateLimited ? 'rate limited' : 'unreachable';
+    const reason = providerDeadline ? 'exhausted its provider budget' : quotaOrAuth ? 'refused (quota/auth)' : upstreamOverloaded ? 'upstream dependency failed' : rateLimited ? 'rate limited' : 'unreachable';
     const detail = err?.statusCode || err?.cause?.statusCode || err?.code || err?.cause?.code || err?.name || 'unknown';
     console.log(`[${kind}] primary LLM (${primary.label}) ${reason} (${detail}) — failing over to ${backup.label}`);
     recordFailure({ kind, started: primaryStarted, via: `${primaryVia}:failover→${backup.label}`, model: primary.label, error: err?.message, extra: { ...failExtra(err), upstream: upstreamDiagnostic(err) } });
@@ -150,7 +152,7 @@ async function runFailover<T>(
         throw Object.assign(new Error('Configured fallback is unavailable or its model is missing; optional AI work skipped'), { name: 'FallbackUnavailableError', code: 'FALLBACK_UNAVAILABLE' });
       }
       operationSignal()?.throwIfAborted();
-      const r = await attempt(backup);
+      const r = await withProviderBudget(configuredUpstreamBudgetMs(backup.cfg), () => attempt(backup));
       operationSignal()?.throwIfAborted();
       recordSuccess({ kind, started: backupStarted, via: r.via, model: backup.label, sampling: r.sampling, usage: r.usage, perf: r.perf, warnings: r.warnings, extra: r.extra });
       return r.value;

@@ -11,7 +11,8 @@ import { operationSignal } from '../core/operation.js';
 //   2. recovery  — plain free-text, then strip <think> blocks / ``` fences and
 //                   Zod-validate ourselves. Catches models that wrap the JSON
 //                   in reasoning the native parser chokes on.
-// Throws only if BOTH attempts fail.
+// Recovery only repairs output/format failures. Transport, budget and auth
+// failures propagate to failover without starting a second format attempt.
 //
 // EACH branch states its own output rule, and no caller states one. A system
 // prompt is written once and then runs down whichever branch the LEG resolves
@@ -25,8 +26,11 @@ import { operationSignal } from '../core/operation.js';
 import { generateText, Output } from 'ai';
 import { withFailover } from '../core/failover.js';
 import { withTransientRetry } from '../core/retry.js';
-import { stripThinking, extractJson, usageOf, perfOf, warningsOf, failureDiagnostics, schemaHint } from '../core/pure.js';
-import { needsToolCallObject, reasoningFor, samplingWithLocalKnobs } from '../provider/capabilities.js';
+import {
+  stripThinking, extractJson, usageOf, perfOf, warningsOf, failureDiagnostics, schemaHint,
+  isTransient, isUnreachable, isQuotaOrAuthError, isUpstreamOverloaded, isRateLimited,
+} from '../core/pure.js';
+import { needsToolCallObject, prefersJsonObjectMode, reasoningFor, samplingWithLocalKnobs } from '../provider/capabilities.js';
 import { objectViaToolCall } from './object-via-tool.js';
 import { resolveMaxOutputTokens } from '../../../settings.js';
 
@@ -61,11 +65,8 @@ export async function djObject({
   maxOutputTokens = resolveMaxOutputTokens(MAX_TOKENS_OBJECT),
   kind = 'sdk.djObject',
   leg = undefined,
-  // Optional caller-supplied abort signal. No live caller wraps djObject in
-  // withDeadline today, so this is inert unless one starts to — kept in the
-  // shape as a precaution so a future deadline-wrapped call can cut the
-  // Retry-After sleep short and prevent a ghost retry after the abort (mirrors
-  // djAgent's threading, PR #751 review).
+  // Optional caller cancellation is combined with the operation deadline by
+  // the shared runtime. Both stop provider requests and Retry-After sleeps.
   signal = undefined,
 }: any): Promise<any> {
   return withFailover(
@@ -84,7 +85,7 @@ export async function djObject({
           let usage;
           let perf;
           let warnings;
-          if (attempt === 1 && needsToolCallObject(l.cfg)) {
+          if (attempt === 1 && needsToolCallObject(l.cfg) && !prefersJsonObjectMode(l.cfg)) {
             lastVia = 'ai-sdk:tool';
             ({ object, usage, perf, warnings } = await withTransientRetry(kind,
               () => objectViaToolCall(l, { system, prompt, schema, temperature, maxOutputTokens, signal }), signal));
@@ -96,7 +97,8 @@ export async function djObject({
               // Appended to the PROMPT, not to `system` — same placement as the
               // recovery branch below, and it leaves the caller's system prompt
               // byte-identical (the tagger hashes its own into prompt_hash).
-              prompt: `${prompt}\n\n${NATIVE_JSON_INSTRUCTION}`,
+              prompt: `${prompt}\n\n${NATIVE_JSON_INSTRUCTION}`
+                + (prefersJsonObjectMode(l.cfg) ? `\nJSON Schema: ${schemaHint(schema)}` : ''),
               temperature,
               maxOutputTokens,
               output: Output.object({ schema }),
@@ -161,6 +163,12 @@ export async function djObject({
           };
         } catch (err) {
           lastErr = err;
+          // Same-leg transient retries have already run. A failed upstream
+          // request has no structured answer to repair; reissuing it as text
+          // burns the fallback's remaining budget (e.g. two 6s NIM 424s).
+          // Keep recovery for malformed output and unsupported-format 400s.
+          if (operationSignal(signal)?.aborted || isTransient(err) || isUnreachable(err)
+            || isQuotaOrAuthError(err) || isUpstreamOverloaded(err) || isRateLimited(err)) break;
         }
       }
       // Attribute the failure to the last sub-path tried, then let withFailover

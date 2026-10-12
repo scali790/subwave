@@ -49,6 +49,10 @@ function assertFinalOutput(
   );
 }
 
+// Real-provider acceptance is manual, never part of the offline unit suite.
+if (process.env.FAMILY_RADIO_QUALITY_ACCEPTANCE !== '1' || !process.env.STATE_DIR) {
+  fail('Set FAMILY_RADIO_QUALITY_ACCEPTANCE=1 and an isolated STATE_DIR for this manual real-model acceptance');
+}
 await settings.load();
 
 const loaded = settings.get();

@@ -1,12 +1,47 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
 
-interface Operation { id: string; deadline: number; signal: AbortSignal }
+interface Operation { id: string; deadline: number; signal: AbortSignal; providerDeadline?: number }
 const scope = new AsyncLocalStorage<Operation>();
 export const currentOperation = () => scope.getStore();
 export function operationSignal(signal?: AbortSignal | null): AbortSignal | undefined {
   const active = scope.getStore()?.signal;
   return active && signal ? AbortSignal.any([active, signal]) : active ?? signal ?? undefined;
+}
+
+export function providerDeadlineError() {
+  return Object.assign(new Error('LLM provider phase exceeded its shared upstream budget'), { name: 'LlmProviderDeadlineError' });
+}
+
+// An explicitly budgeted provider owns one phase: SDK retries, backoff, tool
+// steps and format recovery all inherit this deadline. It never aborts the
+// parent operation, so a configured backup can use the remaining total time.
+export async function withProviderBudget<T>(ms: number | undefined, fn: () => Promise<T>): Promise<T> {
+  if (ms == null) return fn();
+  const parent = currentOperation();
+  if (!parent) return withLlmBudget(ms, () => withProviderBudget(ms, fn));
+  if (parent.providerDeadline != null) return fn();
+  const requestedDeadline = performance.now() + ms;
+  const deadline = Math.min(parent.deadline, requestedDeadline);
+  const controller = new AbortController();
+  const signal = AbortSignal.any([parent.signal, controller.signal]);
+  // When the outer deadline wins, let its signal own the error. A second timer
+  // for the same instant can fire first after millisecond rounding and wrongly
+  // classify total exhaustion as a provider failure eligible for failover.
+  const timer = requestedDeadline < parent.deadline
+    ? setTimeout(() => controller.abort(providerDeadlineError()), Math.max(0, deadline - performance.now())) : undefined;
+  let onAbort: () => void = () => {};
+  try {
+    signal.throwIfAborted();
+    const aborted = new Promise<never>((_, reject) => {
+      onAbort = () => reject(signal.reason);
+      signal.addEventListener('abort', onAbort, { once: true });
+    });
+    return await scope.run({ ...parent, providerDeadline: deadline, signal }, () => Promise.race([fn(), aborted]));
+  } finally {
+    clearTimeout(timer);
+    signal.removeEventListener('abort', onAbort);
+  }
 }
 
 // Scope a whole decision, including deterministic recovery. Only model calls
@@ -32,7 +67,7 @@ export async function withinOperation<T>(ms: number, fn: () => Promise<T>, signa
         rejectAbort = () => reject(combinedSignal.reason);
         combinedSignal.addEventListener('abort', rejectAbort, { once: true });
       });
-      return await Promise.race([fn(), aborted]);
+      return await scope.run({ ...currentOperation()!, signal: combinedSignal }, () => Promise.race([fn(), aborted]));
     } finally {
       combinedSignal.removeEventListener('abort', rejectAbort);
     }
