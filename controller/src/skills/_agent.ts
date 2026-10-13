@@ -20,7 +20,7 @@ import * as session from '../broadcast/session.js';
 import * as settings from '../settings.js';
 import { defineAgent } from '../llm/agent.js';
 import { djObject, modelTolerant } from '../llm/sdk.js';
-import { buildContextLines, CONTEXT_FIELDS, lengthMode, lengthPhrase } from '../llm/dj.js';
+import { buildContextLines, CONTEXT_FIELDS, lengthMode, lengthPhrase, speechBudget } from '../llm/dj.js';
 import { buildSegmentTools, fetchSegmentData, dataBlock } from '../llm/segment-tools.js';
 import { recordCuriosity, recentAiredCuriosity } from './curiosity.js';
 import { loadedCapabilities } from './loader.js';
@@ -28,6 +28,9 @@ import { skillEligible } from './eligibility.js';
 import { forcedRunUsesDirectDataPath, requiresGrounding, standDownReason } from './abstain-policy.js';
 import { runCohostedCapability } from './cohosted.js';
 import * as sfx from '../broadcast/sfx.js';
+import { validateSpokenText } from '../audio/tts.js';
+import { prepareSegmentSpeech } from './segment-speech.js';
+import { markTraceFailure, logEvent } from '../observability/events.js';
 
 // dataBlock lives in llm/segment-tools.js so the co-hosted pool path can share
 // it without an import cycle; re-exported here for llm-bench's existing path.
@@ -233,7 +236,7 @@ function directorSystem(persona, caps, freq: string, sfxCatalog) {
 Your job: decide whether to air ONE between-track segment, or stay silent. You are NOT choosing music. ${tone}
 
 Capabilities available this tick (pick one of these kinds, or stay silent):
-${capList}${sfxBlock(sfxCatalog)}${settings.agentLanguageReminder(persona, 'the "text" line')}`;
+${capList}${sfxBlock(sfxCatalog)}${settings.agentLanguageReminder(persona, 'the "text" line')}${speechBudget(persona)}`;
 }
 
 // 'silent' never reaches the auto tick (the frequency floor blocks it); a
@@ -365,7 +368,7 @@ export function simpleSystem(persona, cap, freq: string, sfxCatalog) {
 
 Your job: decide whether to air ONE between-track "${cap.kind}" segment, or stay silent. You are NOT choosing music. ${stationTone(freq)}
 
-${cap.desc}${sfxBlock(sfxCatalog)}${settings.agentLanguageReminder(persona, 'the "text" line')}`;
+${cap.desc}${sfxBlock(sfxCatalog)}${settings.agentLanguageReminder(persona, 'the "text" line')}${speechBudget(persona)}`;
 }
 
 // Wall-clock guard for the simple path's single djObject call: djObject has no
@@ -373,16 +376,45 @@ ${cap.desc}${sfxBlock(sfxCatalog)}${settings.agentLanguageReminder(persona, 'the
 // unbounded string field all the way to the output-token cap (~380s observed).
 // The abort turns that into a bounded failure; the tick treats a throw as
 // silence.
-async function deadlinedSegmentObject(args: Record<string, unknown>) {
+async function deadlinedSegmentObject(args: Record<string, unknown>, deadlineAt = Date.now() + segmentDeadline()) {
+  const remaining = deadlineAt - Date.now();
+  if (remaining <= 0) throw new Error('segment deadline exhausted before shortening');
   const ac = new AbortController();
   const timer = setTimeout(
     () => ac.abort(new Error(`segment call exceeded ${segmentDeadline()}ms deadline`)),
-    segmentDeadline(),
+    remaining,
   );
   try {
     return await djObject({ ...args, signal: ac.signal });
   } finally {
     clearTimeout(timer);
+  }
+}
+
+async function sendableSegment(text: string, kind: string, persona: any, deadlineAt: number): Promise<string> {
+  try {
+    const result = await prepareSegmentSpeech(text,
+      candidate => validateSpokenText(candidate, kind, persona),
+      async (original, maxChars) => {
+        logEvent('speech.shorten', { kind, maxChars });
+        const out = await deadlinedSegmentObject({
+          system: settings.agentPersonaPreamble(persona)
+            + settings.agentLanguageReminder(persona, 'the "text" line')
+            + speechBudget(persona)
+            + '\nShorten the supplied announcement. Preserve its meaning, attribution, qualifications and names. Add no facts. Use complete sentences. Return spoken words only.',
+          prompt: `Rewrite this announcement within ${Math.max(1, Math.floor(maxChars * 5 / 6))} characters including spaces:\n${original}`,
+          schema: z.object({ text: z.string().min(1) }),
+          temperature: 0.2,
+          maxOutputTokens: 1024,
+          kind: 'shortenSegment',
+        }, deadlineAt);
+        return out.text;
+      });
+    if (result.shortened) logEvent('speech.shortened', { kind });
+    return result.text;
+  } catch (err) {
+    markTraceFailure(err);
+    throw err;
   }
 }
 
@@ -471,6 +503,7 @@ export async function agenticTick(ctx) {
   }
 
   tickBusy = true;
+  const deadlineAt = Date.now() + segmentDeadline();
   try {
     // Empty catalogue when SFX are disabled — the agent is never offered effects.
     const sfxCatalog = settings.get().sfx?.enabled === false ? [] : await sfx.catalog();
@@ -550,7 +583,8 @@ export async function agenticTick(ctx) {
 
     // The speaker's id rides in meta so session.windowMessages names a guest's
     // turn as theirs rather than the host's own words.
-    const delivery = await queue.announce(seg.text.trim(), seg.kind, {
+    const text = await sendableSegment(seg.text, seg.kind, speaker, deadlineAt);
+    const delivery = await queue.announce(text, seg.kind, {
       persona: speaker,
       meta: { personaId: speaker?.id, personaName: speaker?.name },
       pauseTalkEligible: true,
@@ -571,7 +605,7 @@ export async function agenticTick(ctx) {
     // fallback path from repeating it after a restart (#577).
     if (seg.kind === 'curiosity') {
       void delivery.completed.then(aired => {
-        if (aired) recordCuriosity(seg.text.trim(), { aired: true });
+        if (aired) recordCuriosity(text, { aired: true });
       });
     }
   } catch (err) {
@@ -584,6 +618,7 @@ export async function agenticTick(ctx) {
     } else if (isSilentFailure(err)) {
       queue.log('scheduler', `Segment agent stayed silent — output not parseable (${err.message.slice(0, 80)})`);
     } else {
+      markTraceFailure(err);
       queue.log('error', `Segment agent failed: ${err.message}`);
     }
   } finally {
@@ -629,7 +664,7 @@ export function forcedSystem(persona, cap, sfxCatalog, { mayAbstain = false }: {
 
 The operator asked you to air ONE ${cap.kind} segment now — ${mandate} You are NOT choosing music.
 
-${cap.desc}${sfxBlock(sfxCatalog)}${settings.agentLanguageReminder(persona, 'the "text" line')}`;
+${cap.desc}${sfxBlock(sfxCatalog)}${settings.agentLanguageReminder(persona, 'the "text" line')}${speechBudget(persona)}`;
 }
 
 // The operator-override variant of directorAgent. Two module-level agents rather
@@ -686,6 +721,7 @@ export async function runCapability(
   { brief = null, persona = null, pauseTalkEligible = true, automaticHostSpeech = false }:
     { brief?: string | null; persona?: { id?: string; name?: string; skills?: string[]; tts?: unknown } | null; pauseTalkEligible?: boolean; automaticHostSpeech?: boolean } = {},
 ): Promise<CapabilityRun> {
+  const deadlineAt = Date.now() + segmentDeadline();
   const cap = allCapabilities().find(c => c.kind === which || c.skill === which);
   if (!cap) throw new Error(`unknown skill: ${which}`);
   if (cap.ready && !cap.ready()) {
@@ -795,7 +831,7 @@ export async function runCapability(
     return standDown(object?.reason?.trim() || 'nothing usable to write the segment from');
   }
 
-  const text = object?.text?.trim();
+  let text = object?.text?.trim();
   if (!text) {
     // A grounded skill returning nothing has effectively declined: same silence,
     // and a red booth-log error would be wrong. Anything else is a real failure.
@@ -812,6 +848,7 @@ export async function runCapability(
 
   // A rotated speaker rides through announce so voice and session attribution
   // agree (windowMessages names foreign speakers by meta id).
+  text = await sendableSegment(text, cap.kind, speaker, deadlineAt);
   const delivery = await queue.announce(text, cap.kind, (persona || automaticHostSpeech)
     ? {
         persona: speaker,

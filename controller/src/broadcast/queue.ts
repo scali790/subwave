@@ -51,7 +51,7 @@ import type { PromptMemoryEntry } from './prompt-memory.js';
 import { getFullContext, getClockContext, energyForDaypart } from '../context.js';
 import * as settings from '../settings.js';
 import { TRANSITION_EFFECTS } from '../settings/vocab.js';
-import { logEvent } from '../observability/events.js';
+import { logEvent, markTraceFailure } from '../observability/events.js';
 import { djCallsAllowed, presentListeners } from './listeners.js';
 import { autoVoiceAllowed } from './voice-policy.js';
 import { speakClockAllowed, stationIdDaypartDrifted, stationIdDaypartStamp } from './clock-policy.js';
@@ -2160,6 +2160,8 @@ class Queue {
       return { accepted: true, deferred: false, completed };
     } catch (err) {
       this.log('error', `Announce failed: ${(err as Error).message}`);
+      markTraceFailure(err);
+      logEvent('speech.rejected', { kind, error: (err as Error).message });
       if (throwOnError) throw err;
       return { accepted: false, deferred: false, completed: Promise.resolve(false) };
     }

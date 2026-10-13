@@ -3,6 +3,7 @@
 // scripts, picker). Barrel so call sites keep importing from `llm/dj.js` unchanged.
 
 export { djSystem, lengthMode, lengthPhrase } from './internal/prompts/system.js';
+export { speechBudget } from './internal/prompts/speech-budget.js';
 export {
   ANGLES,
   pickAngle,
