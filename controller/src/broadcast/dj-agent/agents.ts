@@ -35,6 +35,7 @@ export interface PickerExtras {
 
 export const pickerAgent = defineAgent<PickerRunArgs, PickerExtras>({
   kind: 'djAgentPick',
+  hasDiscoveryResults: (extras) => extras.seen.size > 0,
   // Function form: resolved per run so the transition coaching follows the
   // on-air persona's djMode and the say length its scriptLength.
   schema: () => pickSchema(),
@@ -59,6 +60,7 @@ export const pickerAgent = defineAgent<PickerRunArgs, PickerExtras>({
 
 export const requestAgent = defineAgent<RequestRunArgs, PickerExtras>({
   kind: 'djAgentRequest',
+  hasDiscoveryResults: (extras) => extras.seen.size > 0,
   // Function form — resolved per run so the intro length follows the on-air
   // persona's scriptLength.
   schema: () => requestSchema(),

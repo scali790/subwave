@@ -44,6 +44,7 @@ export interface AgentDefinition<TArgs = Record<string, any>, TExtras = any> {
   // extras (the picker checks its chosen id against the `seen` map). A miss
   // falls the run through to the done-tool harness — see djAgent's validate.
   validateObject?: (object: any, extras: TExtras) => boolean;
+  hasDiscoveryResults?: (extras: TExtras) => boolean;
   // Follow the leg's per-provider discovery budget instead of the single
   // historical step — see DjAgentOptions.providerDiscoveryBudget in
   // strategy/agent.ts for why this is opt-in per agent.
@@ -118,6 +119,9 @@ export function defineAgent<TArgs = Record<string, any>, TExtras = any>(
         maxOutputTokens: def.maxOutputTokens,
         kind: def.kind,
         providerDiscoveryBudget: def.providerDiscoveryBudget === true,
+        ...(def.hasDiscoveryResults
+          ? { discoveryReady: () => def.hasDiscoveryResults!(extras) }
+          : {}),
         ...(def.validateObject
           ? { validate: (object: any) => def.validateObject!(object, extras) }
           : {}),
