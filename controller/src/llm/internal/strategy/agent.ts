@@ -30,6 +30,7 @@ import { objectViaToolCall } from './object-via-tool.js';
 import { agentPlan } from './plan.js';
 import { resolveMaxOutputTokens } from '../../../settings.js';
 import { recordAgentRetry } from '../telemetry/log.js';
+import { operationSignal } from '../core/operation.js';
 
 // Loose views of an AI SDK ToolLoopAgent generate result — only the fields the
 // cascade reads. `AgentLike` is the minimal surface runDeadlined needs.
@@ -52,6 +53,7 @@ interface AgentFailureError extends Error {
   finishReason?: unknown;
   usage?: unknown;
   steps?: unknown;
+  discoveryCalls?: number;
 }
 interface DjAgentOptions {
   system: string;
@@ -64,6 +66,10 @@ interface DjAgentOptions {
   kind?: string;
   timeoutMs?: number;
   validate?: (object: unknown) => boolean;
+  // Caller-owned discovery evidence, independent of final-id validation.
+  // Empty evidence must reach the caller's stateless fallback, not a forced
+  // completion that has no candidates. Only pick/request opt in.
+  discoveryReady?: () => boolean;
   // Follow the leg's per-provider discovery budget instead of the pinned single
   // historical step. Opt-in per agent, OFF by default: a caller's step cap can
   // be load-bearing, so only pick/request ask for it.
@@ -152,7 +158,9 @@ function buildRecoveryAgent(leg: Leg, system: string, allTools: ToolSet | undefi
 // no deadline.
 function runDeadlinedCall<T>(deadlineAt: number | undefined, kind: string, label: string, fn: (signal?: AbortSignal) => Promise<T>): Promise<T> {
   if (deadlineAt == null) {
-    return withTransientRetry(kind, () => fn());
+    const signal = operationSignal();
+    signal?.throwIfAborted();
+    return withTransientRetry(kind, () => fn(signal), signal);
   }
   const remaining = deadlineAt - Date.now();
   if (remaining <= 0) {
@@ -160,8 +168,11 @@ function runDeadlinedCall<T>(deadlineAt: number | undefined, kind: string, label
     err.name = 'AgentDeadlineError';
     return Promise.reject(err);
   }
-  return withDeadline(remaining, `${kind} ${label}`, (signal) =>
-    withTransientRetry(kind, () => fn(signal), signal));
+  return withDeadline(remaining, `${kind} ${label}`, (signal) => {
+    const combined = operationSignal(signal) ?? signal;
+    combined?.throwIfAborted();
+    return withTransientRetry(kind, () => fn(combined), combined);
+  });
 }
 
 function runDeadlined(deadlineAt: number | undefined, kind: string, label: string, agent: AgentLike, messages: ModelMessage[]): Promise<AgentGenerateResult> {
@@ -182,6 +193,7 @@ export async function djAgent({
   kind = 'sdk.djAgent',
   timeoutMs,
   providerDiscoveryBudget = false,
+  discoveryReady,
   // Caller acceptance check on the NATIVE path's object only — that branch
   // validates schema shape, not content, so a fabricated-but-well-formed answer
   // would otherwise sail through. A miss falls through to the done-tool path.
@@ -193,6 +205,17 @@ export async function djAgent({
     kind,
     (err) => ({ system, messages, ...failureDiagnostics(err) }),
     async (leg: Leg) => {
+      let completedDiscovery = 0;
+      // Count successful executions, not merely model-declared tool calls.
+      // A malformed or failed tool call does not prove an empty library result.
+      const discoveryTools = discoveryReady && tools
+        ? Object.fromEntries(Object.entries(tools).map(([name, definition]) => [name,
+          definition.execute ? { ...definition, execute: async (...args: any[]) => {
+            const value = await (definition.execute as any)(...args);
+            completedDiscovery++;
+            return value;
+          } } : definition])) as ToolSet
+        : tools;
       const toolCount = tools ? Object.keys(tools).length : 0;
       const plan = agentPlan(leg.cfg, schema, toolCount);
       // The opt-in is the caller's; the budget is read off the LEG, so a
@@ -202,9 +225,18 @@ export async function djAgent({
       // Branches override before their await, so a failure record always
       // attributes to the path actually attempted.
       let lastVia = 'ai-sdk:agent';
+      const instructions = discoveryReady
+        ? `${system}\n\nExecute a discovery tool before choosing. Only tool results supply eligible ids; never infer an id from the conversation. If discovery returns nothing, do not invent a selection.`
+        : system;
       // One shared wall-clock ceiling for every attempt below.
       const deadlineAt = timeoutMs ? Date.now() + timeoutMs : undefined;
       try {
+        if (discoveryReady && toolCount === 0 && !discoveryReady()) {
+          throw Object.assign(new Error('agent has no discovery tools or eligible candidates; completion skipped'), {
+            name: 'AgentDiscoveryError', discoveryCalls: 0, steps: [],
+            usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+          });
+        }
         // No discovery tools + a model that ignores JSON mode: no loop to run,
         // and ToolLoopAgent + Output.object would throw NoObjectGeneratedError.
         if (plan === 'object-via-tool') {
@@ -227,6 +259,8 @@ export async function djAgent({
         // at the end would count only the last one. This sum is what
         // telemetry/log.ts records and what the daily token cap counts against.
         let spentUsage = { input: 0, output: 0, total: 0 };
+        let nativeTrail: ToolCallSummary[] = [];
+        let nativeSteps = 0;
         const addUsage = (u: { input: number; output: number; total: number }) => {
           spentUsage = {
             input: spentUsage.input + u.input,
@@ -243,8 +277,8 @@ export async function djAgent({
             const nativeAgent = new ToolLoopAgent({
               // forceNoThink below, so use the no-think model.
               model: leg.noThinkModel ?? leg.model,
-              instructions: system,
-              tools,
+              instructions,
+              tools: discoveryTools,
               // No `done` tool to force here, so the cap is every discovery step
               // plus one to emit. Max with the caller's value so a deliberately
               // taller loop isn't shrunk by a narrow descriptor.
@@ -270,7 +304,7 @@ export async function djAgent({
             if (nObj && explored && typeof validate === 'function') {
               try { accepted = !!validate(nObj); } catch { accepted = false; }
             }
-            if (nObj && explored && accepted) {
+            if (nObj && explored && accepted && (!discoveryReady || discoveryReady())) {
               const toolCalls = flattenToolCalls(nr);
               return {
                 value: { object: nObj, steps: nSteps, toolCalls },
@@ -284,7 +318,10 @@ export async function djAgent({
             }
             console.log(`[${kind}] native output produced no usable pick (explored=${explored}, accepted=${accepted}) — falling back to done-tool`);
             addUsage(usageOf(nr));
+            nativeTrail = flattenToolCalls(nr);
+            nativeSteps = nSteps;
           } catch (e) {
+            operationSignal()?.throwIfAborted();
             console.log(`[${kind}] native output failed (${e?.message}) — falling back to done-tool`);
           }
         }
@@ -292,7 +329,7 @@ export async function djAgent({
         // Unified main agent: done-tool (Ollama-with-tools, or a native miss),
         // native-no-tools (agent-level Output.object), or free text (no schema).
         const useDoneTool = schema != null && (needsToolCallObject(leg.cfg) || toolCount > 0);
-        const allTools = useDoneTool ? { ...tools, done: buildDoneTool(schema!) } : tools;
+        const allTools = useDoneTool ? { ...discoveryTools, done: buildDoneTool(schema!) } : discoveryTools;
         // 'required' by default; 'auto' when the operator downgrades this leg for
         // a server whose forced-tool backend crashes (#570).
         const forcedChoice = forcedToolChoice(leg.cfg);
@@ -310,7 +347,7 @@ export async function djAgent({
           // useDoneTool legs force tool calls → no-think model; the schema-only
           // and free-text legs keep the operator's reasoning choice.
           model: useDoneTool ? (leg.noThinkModel ?? leg.model) : leg.model,
-          instructions: system,
+          instructions,
           tools: allTools,
           stopWhen: [isStepCount(effectiveMaxSteps), hasToolCall('done')],
           temperature,
@@ -324,7 +361,7 @@ export async function djAgent({
           ...(schema && !useDoneTool ? { output: Output.object({ schema }) } : {}),
         } as any);
         let result = await runDeadlined(deadlineAt, kind, 'agent run', agent, messages);
-        let steps = result.steps?.length ?? 0;
+        let steps = nativeSteps + (result.steps?.length ?? 0);
         addUsage(usageOf(result));
 
         // The trail belongs to the MAIN run: `result` is reassigned by the
@@ -332,11 +369,25 @@ export async function djAgent({
         // entirely. Capture here and top up from later attempts. The terminal
         // collapse renders this into its prompt, which is what stops a cornered
         // model from inventing an id.
-        let discoveryTrail = flattenToolCalls(result);
+        let discoveryTrail = [...nativeTrail, ...flattenToolCalls(result)];
         const captureTrail = (r: AgentGenerateResult) => {
           const more = flattenToolCalls(r);
           if (more.length) discoveryTrail = [...discoveryTrail, ...more];
         };
+
+        // Do not buy done-only recovery (or accept done/text) without the
+        // caller's actual candidate evidence. Keep validate native-only:
+        // near-miss ids from a nonempty seen map remain repairable by callers.
+        if (discoveryReady && !discoveryReady()) {
+          const err = new Error('agent discovery produced no eligible candidates; completion skipped') as AgentFailureError;
+          err.name = 'AgentDiscoveryError';
+          err.text = result.text;
+          err.finishReason = result.finishReason;
+          err.usage = { inputTokens: spentUsage.input, outputTokens: spentUsage.output, totalTokens: spentUsage.total };
+          err.steps = result.steps;
+          err.discoveryCalls = completedDiscovery;
+          throw err;
+        }
 
         // Set only by the single-turn terminal collapse below.
         let terminalObject: unknown;
@@ -368,7 +419,7 @@ export async function djAgent({
           const recoveryMessages = priorMessages.length ? [...messages, ...priorMessages] : messages;
           result = await runDeadlined(deadlineAt, kind, 'agent recovery',
             buildRecoveryAgent(leg, system, allTools, temperature, maxOutputTokens, forcedChoice), recoveryMessages);
-          steps = result.steps?.length ?? 0;
+          steps += result.steps?.length ?? 0;
           addUsage(usageOf(result));
           captureTrail(result);
           noteIfDeclined('recovery', result);
@@ -395,6 +446,7 @@ export async function djAgent({
               // A real model call the record should count.
               steps += 1;
             } catch (e) {
+              operationSignal()?.throwIfAborted();
               // Text salvage below still gets a shot, then the caller's pool
               // fallback, so log and carry on rather than throwing past both.
               const why = (e as Error)?.message || String(e);
@@ -410,7 +462,7 @@ export async function djAgent({
           // calls that weren't executed (like our no-execute `done`) here.
           const doneCall = (result.staticToolCalls || []).find((c) => c.toolName === 'done');
           if (doneCall) {
-            object = doneCall.input;
+            object = schema!.parse(doneCall.input);
           } else if (terminalObject !== undefined) {
             // objectViaToolCall already Zod-parsed it, so it lands here
             // schema-valid, same as a done call.
