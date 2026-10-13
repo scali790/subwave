@@ -2,6 +2,11 @@
 
 Loaded when working under `controller/`. Station-wide architecture lives in the root `CLAUDE.md`.
 
+Picker/request completion recovery requires caller-owned candidate evidence.
+`hasDiscoveryResults` is separate from native-only `validateObject`: an empty
+map fails before done-only recovery, while a nonempty map preserves caller
+near-miss/repick salvage. See [agent discovery acceptance](../docs/agent-discovery-recovery.md).
+
 ### Controller (`controller/src/`, ESM Node.js)
 
 Grouped by domain: `server.js`, `config.js`, `settings.js`, `context.js` at the root; everything else under `routes/`, `middleware/`, `music/`, `broadcast/`, `audio/`, `llm/`, `skills/`.

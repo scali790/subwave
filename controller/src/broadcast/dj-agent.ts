@@ -303,6 +303,14 @@ async function pickViaAgent(queue, ctx, { wantLink, audioWaypoint = null, pickAn
     messages: session.windowMessages(),
     scope,
     showAt,
+  }).catch((err) => {
+    if (err?.name === 'AgentDiscoveryError') {
+      const failure = classifyPickFailure({ pickedId: null, seedId: pickAnchor?.id ?? null,
+        candidates: 0, toolCalls: err.discoveryCalls ?? 0 });
+      logEvent('pick.rejected', { agent: 'pick', id: null, candidates: 0, cause: failure.kind });
+      err.pickFailure = failure;
+    }
+    throw err;
   });
   const { steps, toolCalls, extras } = run;
   let object = run.object;
