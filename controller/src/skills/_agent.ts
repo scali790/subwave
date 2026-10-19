@@ -376,13 +376,11 @@ ${cap.desc}${sfxBlock(sfxCatalog)}${settings.agentLanguageReminder(persona, 'the
 // unbounded string field all the way to the output-token cap (~380s observed).
 // The abort turns that into a bounded failure; the tick treats a throw as
 // silence.
-async function deadlinedSegmentObject(args: Record<string, unknown>, deadlineAt = Date.now() + segmentDeadline()) {
-  const remaining = deadlineAt - Date.now();
-  if (remaining <= 0) throw new Error('segment deadline exhausted before shortening');
+async function deadlinedSegmentObject(args: Record<string, unknown>) {
   const ac = new AbortController();
   const timer = setTimeout(
     () => ac.abort(new Error(`segment call exceeded ${segmentDeadline()}ms deadline`)),
-    remaining,
+    segmentDeadline(),
   );
   try {
     return await djObject({ ...args, signal: ac.signal });
@@ -391,29 +389,12 @@ async function deadlinedSegmentObject(args: Record<string, unknown>, deadlineAt 
   }
 }
 
-async function sendableSegment(text: string, kind: string, persona: any, deadlineAt: number): Promise<string> {
+function sendableSegment(text: string, kind: string, persona: any): string {
   try {
-    const result = await prepareSegmentSpeech(text,
-      candidate => validateSpokenText(candidate, kind, persona),
-      async (original, maxChars) => {
-        logEvent('speech.shorten', { kind, maxChars });
-        const out = await deadlinedSegmentObject({
-          system: settings.agentPersonaPreamble(persona)
-            + settings.agentLanguageReminder(persona, 'the "text" line')
-            + speechBudget(persona)
-            + '\nShorten the supplied announcement. Preserve its meaning, attribution, qualifications and names. Add no facts. Use complete sentences. Return spoken words only.',
-          prompt: `Rewrite this announcement within ${Math.max(1, Math.floor(maxChars * 5 / 6))} characters including spaces:\n${original}`,
-          schema: z.object({ text: z.string().min(1) }),
-          temperature: 0.2,
-          maxOutputTokens: 1024,
-          kind: 'shortenSegment',
-        }, deadlineAt);
-        return out.text;
-      });
-    if (result.shortened) logEvent('speech.shortened', { kind });
-    return result.text;
+    return prepareSegmentSpeech(text, candidate => validateSpokenText(candidate, kind, persona));
   } catch (err) {
     markTraceFailure(err);
+    logEvent('speech.rejected', { kind, stage: 'preflight', error: err instanceof Error ? err.message : String(err) });
     throw err;
   }
 }
@@ -503,7 +484,6 @@ export async function agenticTick(ctx) {
   }
 
   tickBusy = true;
-  const deadlineAt = Date.now() + segmentDeadline();
   try {
     // Empty catalogue when SFX are disabled — the agent is never offered effects.
     const sfxCatalog = settings.get().sfx?.enabled === false ? [] : await sfx.catalog();
@@ -583,7 +563,7 @@ export async function agenticTick(ctx) {
 
     // The speaker's id rides in meta so session.windowMessages names a guest's
     // turn as theirs rather than the host's own words.
-    const text = await sendableSegment(seg.text, seg.kind, speaker, deadlineAt);
+    const text = sendableSegment(seg.text, seg.kind, speaker);
     const delivery = await queue.announce(text, seg.kind, {
       persona: speaker,
       meta: { personaId: speaker?.id, personaName: speaker?.name },
@@ -721,7 +701,6 @@ export async function runCapability(
   { brief = null, persona = null, pauseTalkEligible = true, automaticHostSpeech = false }:
     { brief?: string | null; persona?: { id?: string; name?: string; skills?: string[]; tts?: unknown } | null; pauseTalkEligible?: boolean; automaticHostSpeech?: boolean } = {},
 ): Promise<CapabilityRun> {
-  const deadlineAt = Date.now() + segmentDeadline();
   const cap = allCapabilities().find(c => c.kind === which || c.skill === which);
   if (!cap) throw new Error(`unknown skill: ${which}`);
   if (cap.ready && !cap.ready()) {
@@ -848,7 +827,7 @@ export async function runCapability(
 
   // A rotated speaker rides through announce so voice and session attribution
   // agree (windowMessages names foreign speakers by meta id).
-  text = await sendableSegment(text, cap.kind, speaker, deadlineAt);
+  text = sendableSegment(text, cap.kind, speaker);
   const delivery = await queue.announce(text, cap.kind, (persona || automaticHostSpeech)
     ? {
         persona: speaker,
