@@ -13,7 +13,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
 import { STATE_DIR } from '../config.js';
 
-type TraceStore = { traceId: string; kind: string; seq: number };
+type TraceStore = { traceId: string; kind: string; seq: number; failure?: string };
 const als = new AsyncLocalStorage<TraceStore>();
 
 // Once: on a fresh checkout state/logs/ may not exist and a best-effort
@@ -42,6 +42,15 @@ export function cap(str: any, n = 4000) {
 // The active trace store, or null outside any withTrace scope.
 export function currentTrace() {
   return als.getStore() || null;
+}
+
+// A handled operational failure still makes the logical decision fail. Keep
+// the caller's return/fallback contract and the first reason within this scope.
+export function markTraceFailure(err: unknown): void {
+  const trace = currentTrace();
+  if (trace && !trace.failure) {
+    trace.failure = (err instanceof Error ? err.message : String(err)) || 'handled operational failure';
+  }
 }
 
 // Append one event line; `data` is spread after the envelope fields. Never throws.
@@ -106,8 +115,8 @@ export async function withTrace<T>(meta: any = {}, fn: () => Promise<T>): Promis
       throw err;
     } finally {
       logEvent('trace.end', {
-        kind: store.kind, ok, ms: Date.now() - startedAt,
-        ...(error ? { error } : {}),
+        kind: store.kind, ok: ok && !store.failure, ms: Date.now() - startedAt,
+        ...(error || store.failure ? { error: error || store.failure } : {}),
       });
     }
   });

@@ -1,5 +1,9 @@
 # CLAUDE.md — `controller/`
 
+Generated single-speaker skill text must pass the final spoken-text contract
+before queueing. See [segment speech acceptance](../docs/segment-speech-acceptance.md)
+for fail-closed overlength, handled trace failures and acceptance boundaries.
+
 Loaded when working under `controller/`. Station-wide architecture lives in the root `CLAUDE.md`.
 
 Picker/request completion recovery requires caller-owned candidate evidence.

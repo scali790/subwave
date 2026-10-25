@@ -1,0 +1,100 @@
+[
+  {
+    "id": "weather_uncertainty",
+    "lead": "Für die erfundene Gemeinde Lindenau nennt die fiktive Prognose für morgen zwischen 16 und 18 Uhr eine Regenwahrscheinlichkeit von 30 Prozent. Das ist keine bestätigte Wetterlage und keine Aussage über das Wetter jetzt. Der Hinweis gilt nur für morgen; ob es wirklich regnet, ist offen.",
+    "facts": [
+      "Lindenau",
+      "morgen 16 bis 18 Uhr",
+      "30 Prozent Wahrscheinlichkeit",
+      "keine bestätigte Lage oder Beobachtung jetzt"
+    ],
+    "critical": "Do not turn forecast/probability into current or certain rain.",
+    "text": "Für die erfundene Gemeinde Lindenau nennt die fiktive Prognose für morgen zwischen 16 und 18 Uhr eine Regenwahrscheinlichkeit von 30 Prozent. Die übrige Sendung bleibt eine ruhige Musikrunde. Wir lassen den einzelnen Stücken Platz und begleiten den Übergang mit einer kurzen Moderation. Die folgenden Titel sollen in dieser erfundenen Radioszene einen entspannten Rahmen bilden; zusätzliche Nachrichten oder spontane Behauptungen gehören nicht dazu. Das ist keine bestätigte Wetterlage und keine Aussage über das Wetter jetzt. Der Hinweis gilt nur für morgen; ob es wirklich regnet, ist offen. Die übrige Sendung bleibt eine ruhige Musikrunde. Wir lassen den einzelnen Stücken Platz und begleiten den Übergang mit einer kurzen Moderation. Die folgenden Titel sollen in dieser erfundenen Radioszene einen entspannten Rahmen bilden; zusätzliche Nachrichten oder spontane Behauptungen gehören nicht dazu."
+  },
+  {
+    "id": "cancellation_negation",
+    "lead": "Das fiktive Konzert von Blauer Hof am 18. Oktober findet nicht statt. Der Veranstalter nennt noch keinen Ersatztermin. Bereits gekaufte Karten werden laut seiner Mitteilung erstattet; ein neues Konzert wurde ausdrücklich nicht bestätigt. Die Absage betrifft diesen einen Abend und ist kein Ende der Band.",
+    "facts": [
+      "Blauer Hof",
+      "18. Oktober abgesagt",
+      "kein bestätigter Ersatztermin",
+      "gekaufte Karten laut Veranstalter erstattet"
+    ],
+    "critical": "Do not announce a confirmed replacement or cancel all concerts.",
+    "text": "Das fiktive Konzert von Blauer Hof am 18. Oktober findet nicht statt. Die übrige Sendung bleibt eine ruhige Musikrunde. Wir lassen den einzelnen Stücken Platz und begleiten den Übergang mit einer kurzen Moderation. Die folgenden Titel sollen in dieser erfundenen Radioszene einen entspannten Rahmen bilden; zusätzliche Nachrichten oder spontane Behauptungen gehören nicht dazu. Der Veranstalter nennt noch keinen Ersatztermin. Bereits gekaufte Karten werden laut seiner Mitteilung erstattet; ein neues Konzert wurde ausdrücklich nicht bestätigt. Die Absage betrifft diesen einen Abend und ist kein Ende der Band. Die übrige Sendung bleibt eine ruhige Musikrunde. Wir lassen den einzelnen Stücken Platz und begleiten den Übergang mit einer kurzen Moderation. Die folgenden Titel sollen in dieser erfundenen Radioszene einen entspannten Rahmen bilden; zusätzliche Nachrichten oder spontane Behauptungen gehören nicht dazu."
+  },
+  {
+    "id": "request_attribution",
+    "lead": "In unserer erfundenen Hörernachricht wünscht Mara das Stück Leise Wege von Blauer Hof für ihre Schwester Nora. Nora hat das Lied nicht selbst bestellt. Mara bittet um eine Widmung, aber noch ist nicht bestätigt, ob der Musikwunsch tatsächlich in die Warteschlange aufgenommen wurde. Bitte keine Zusage senden.",
+    "facts": [
+      "Mara ist Antragstellerin",
+      "Nora ist Maras Schwester und Empfängerin",
+      "Leise Wege von Blauer Hof",
+      "Aufnahme in Warteschlange nicht bestätigt"
+    ],
+    "critical": "Do not swap requester/recipient or promise queued playback.",
+    "text": "In unserer erfundenen Hörernachricht wünscht Mara das Stück Leise Wege von Blauer Hof für ihre Schwester Nora. Die übrige Sendung bleibt eine ruhige Musikrunde. Wir lassen den einzelnen Stücken Platz und begleiten den Übergang mit einer kurzen Moderation. Die folgenden Titel sollen in dieser erfundenen Radioszene einen entspannten Rahmen bilden; zusätzliche Nachrichten oder spontane Behauptungen gehören nicht dazu. Nora hat das Lied nicht selbst bestellt. Mara bittet um eine Widmung, aber noch ist nicht bestätigt, ob der Musikwunsch tatsächlich in die Warteschlange aufgenommen wurde. Bitte keine Zusage senden. Die übrige Sendung bleibt eine ruhige Musikrunde. Wir lassen den einzelnen Stücken Platz und begleiten den Übergang mit einer kurzen Moderation. Die folgenden Titel sollen in dieser erfundenen Radioszene einen entspannten Rahmen bilden; zusätzliche Nachrichten oder spontane Behauptungen gehören nicht dazu."
+  },
+  {
+    "id": "historical_not_current",
+    "lead": "Das erfundene Album Fensterlicht von Blauer Hof erschien 1984. Die ebenfalls erfundene Quellenangabe beschreibt eine Aufnahme in Basel, nicht in Zürich. Diese Angaben betreffen das damalige Album; sie bestätigen weder ein heutiges Konzert noch einen aktuellen Liveauftritt. Aus diesem Hinweis folgt auch nicht, welcher Titel gerade läuft.",
+    "facts": [
+      "Fensterlicht von Blauer Hof",
+      "1984",
+      "Aufnahme Basel, nicht Zürich",
+      "historisch; kein bestätigter Liveauftritt oder Now-Playing"
+    ],
+    "critical": "Do not invent a live cue or change year/place.",
+    "text": "Das erfundene Album Fensterlicht von Blauer Hof erschien 1984. Die ebenfalls erfundene Quellenangabe beschreibt eine Aufnahme in Basel, nicht in Zürich. Die übrige Sendung bleibt eine ruhige Musikrunde. Wir lassen den einzelnen Stücken Platz und begleiten den Übergang mit einer kurzen Moderation. Die folgenden Titel sollen in dieser erfundenen Radioszene einen entspannten Rahmen bilden; zusätzliche Nachrichten oder spontane Behauptungen gehören nicht dazu. Diese Angaben betreffen das damalige Album; sie bestätigen weder ein heutiges Konzert noch einen aktuellen Liveauftritt. Aus diesem Hinweis folgt auch nicht, welcher Titel gerade läuft. Die übrige Sendung bleibt eine ruhige Musikrunde. Wir lassen den einzelnen Stücken Platz und begleiten den Übergang mit einer kurzen Moderation. Die folgenden Titel sollen in dieser erfundenen Radioszene einen entspannten Rahmen bilden; zusätzliche Nachrichten oder spontane Behauptungen gehören nicht dazu."
+  },
+  {
+    "id": "reported_not_confirmed",
+    "lead": "Laut dem fiktiven Gemeindeblatt soll der erfundene Lindenauer Park am 22. Oktober wieder öffnen. Lea Graf wird dort als Sprecherin des Vereins genannt. Die Gemeinde hat den Termin noch nicht bestätigt. Es handelt sich um eine berichtete Planung, nicht um eine gesicherte Eröffnung; der Radiosender kann daraus keine feste Besuchsempfehlung ableiten.",
+    "facts": [
+      "Gemeindeblatt als Quelle",
+      "Lindenauer Park",
+      "22. Oktober als geplantes Datum",
+      "Lea Graf Vereinssprecherin",
+      "Gemeinde hat Termin nicht bestätigt"
+    ],
+    "critical": "Preserve attribution and uncertainty; never report completed reopening.",
+    "text": "Laut dem fiktiven Gemeindeblatt soll der erfundene Lindenauer Park am 22. Oktober wieder öffnen. Die übrige Sendung bleibt eine ruhige Musikrunde. Wir lassen den einzelnen Stücken Platz und begleiten den Übergang mit einer kurzen Moderation. Die folgenden Titel sollen in dieser erfundenen Radioszene einen entspannten Rahmen bilden; zusätzliche Nachrichten oder spontane Behauptungen gehören nicht dazu. Lea Graf wird dort als Sprecherin des Vereins genannt. Die Gemeinde hat den Termin noch nicht bestätigt. Es handelt sich um eine berichtete Planung, nicht um eine gesicherte Eröffnung; der Radiosender kann daraus keine feste Besuchsempfehlung ableiten. Die übrige Sendung bleibt eine ruhige Musikrunde. Wir lassen den einzelnen Stücken Platz und begleiten den Übergang mit einer kurzen Moderation. Die folgenden Titel sollen in dieser erfundenen Radioszene einen entspannten Rahmen bilden; zusätzliche Nachrichten oder spontane Behauptungen gehören nicht dazu."
+  },
+  {
+    "id": "numbers_units_corrections",
+    "lead": "In der fiktiven Information zum Aarefest stehen 12 Plätze bereit, davon sind 8 bereits vergeben und 4 frei. Der Eintritt kostet 15 Franken pro Person. Die Einladung nennt keine kostenlose Teilnahme. Aarefest bezeichnet hier ein erfundenes Familienfest in Aarau. Diese Zahlen sind ein einzelner Teststand und keine laufend aktualisierte Verfügbarkeitsanzeige.",
+    "facts": [
+      "Aarefest",
+      "12 insgesamt, 8 vergeben, 4 frei",
+      "15 Franken pro Person",
+      "keine kostenlose Teilnahme",
+      "ein Teststand, nicht laufend aktualisiert"
+    ],
+    "critical": "Do not swap quantities, price or free/paid; validate expanded pronunciation.",
+    "text": "In der fiktiven Information zum Aarefest stehen 12 Plätze bereit, davon sind 8 bereits vergeben und 4 frei. Die übrige Sendung bleibt eine ruhige Musikrunde. Wir lassen den einzelnen Stücken Platz und begleiten den Übergang mit einer kurzen Moderation. Die folgenden Titel sollen in dieser erfundenen Radioszene einen entspannten Rahmen bilden; zusätzliche Nachrichten oder spontane Behauptungen gehören nicht dazu. Der Eintritt kostet 15 Franken pro Person. Die Einladung nennt keine kostenlose Teilnahme. Aarefest bezeichnet hier ein erfundenes Familienfest in Aarau. Diese Zahlen sind ein einzelner Teststand und keine laufend aktualisierte Verfügbarkeitsanzeige. Die übrige Sendung bleibt eine ruhige Musikrunde. Wir lassen den einzelnen Stücken Platz und begleiten den Übergang mit einer kurzen Moderation. Die folgenden Titel sollen in dieser erfundenen Radioszene einen entspannten Rahmen bilden; zusätzliche Nachrichten oder spontane Behauptungen gehören nicht dazu."
+  },
+  {
+    "id": "dates_times_scope",
+    "lead": "Die erfundene Einladung gilt für den 14. Oktober um 10 Uhr in Lindenau. Der Aufbau am 15. Oktober um 9 Uhr ist ein separater Termin nur für Helfer, keine zweite öffentliche Veranstaltung. Beide Uhrzeiten sind Ortszeit in der Schweiz. Die Einladung gilt nicht für den Aufbau und enthält keine Zusage, dass das Treffen bei jedem Wetter stattfindet.",
+    "facts": [
+      "14. Oktober 10 Uhr Einladung Lindenau",
+      "15. Oktober 9 Uhr Aufbau nur Helfer",
+      "Schweizer Ortszeit",
+      "keine Allwetterzusage"
+    ],
+    "critical": "Do not conflate days, times or audience.",
+    "text": "Die erfundene Einladung gilt für den 14. Oktober um 10 Uhr in Lindenau. Die übrige Sendung bleibt eine ruhige Musikrunde. Wir lassen den einzelnen Stücken Platz und begleiten den Übergang mit einer kurzen Moderation. Die folgenden Titel sollen in dieser erfundenen Radioszene einen entspannten Rahmen bilden; zusätzliche Nachrichten oder spontane Behauptungen gehören nicht dazu. Der Aufbau am 15. Oktober um 9 Uhr ist ein separater Termin nur für Helfer, keine zweite öffentliche Veranstaltung. Beide Uhrzeiten sind Ortszeit in der Schweiz. Die Einladung gilt nicht für den Aufbau und enthält keine Zusage, dass das Treffen bei jedem Wetter stattfindet. Die übrige Sendung bleibt eine ruhige Musikrunde. Wir lassen den einzelnen Stücken Platz und begleiten den Übergang mit einer kurzen Moderation. Die folgenden Titel sollen in dieser erfundenen Radioszene einen entspannten Rahmen bilden; zusätzliche Nachrichten oder spontane Behauptungen gehören nicht dazu."
+  },
+  {
+    "id": "track_album_cue",
+    "lead": "In dieser fiktiven Radioszene läuft Leise Wege von Blauer Hof, vom erfundenen Album Fensterlicht. Als nächster Titel ist Still am See von Roter Garten vorgesehen, aber noch nicht bestätigt. Leise Wege und Still am See sind verschiedene Stücke verschiedener Künstler. Bitte die Albumangabe nicht dem nächsten Titel zuordnen und keine feste Folge zusagen.",
+    "facts": [
+      "jetzt Leise Wege von Blauer Hof",
+      "Album Fensterlicht gehört Leise Wege",
+      "Still am See von Roter Garten vorgesehen",
+      "nächster Titel nicht bestätigt"
+    ],
+    "critical": "Preserve current versus tentative next cue and album attribution.",
+    "text": "In dieser fiktiven Radioszene läuft Leise Wege von Blauer Hof, vom erfundenen Album Fensterlicht. Die übrige Sendung bleibt eine ruhige Musikrunde. Wir lassen den einzelnen Stücken Platz und begleiten den Übergang mit einer kurzen Moderation. Die folgenden Titel sollen in dieser erfundenen Radioszene einen entspannten Rahmen bilden; zusätzliche Nachrichten oder spontane Behauptungen gehören nicht dazu. Als nächster Titel ist Still am See von Roter Garten vorgesehen, aber noch nicht bestätigt. Leise Wege und Still am See sind verschiedene Stücke verschiedener Künstler. Bitte die Albumangabe nicht dem nächsten Titel zuordnen und keine feste Folge zusagen. Die übrige Sendung bleibt eine ruhige Musikrunde. Wir lassen den einzelnen Stücken Platz und begleiten den Übergang mit einer kurzen Moderation. Die folgenden Titel sollen in dieser erfundenen Radioszene einen entspannten Rahmen bilden; zusätzliche Nachrichten oder spontane Behauptungen gehören nicht dazu."
+  }
+]
