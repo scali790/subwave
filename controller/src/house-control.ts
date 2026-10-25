@@ -11,7 +11,7 @@ export interface CurrentTrackSnapshot {
 
 export interface NeverPlayDeps {
   getNowPlaying: () => Promise<any>;
-  listBlocks: () => Array<{ type: string; id: string }>;
+  listBlocks: () => Array<{ type: string; id: string; undoRevision?: string }>;
   addTrackBlock: (input: {
     type: 'track';
     id: string;
@@ -22,6 +22,7 @@ export interface NeverPlayDeps {
   purgeBlocked: () => number;
   refreshAutoPlaylist: () => Promise<unknown>;
   log: (level: string, message: string) => void;
+  issueUndo?: (entry: any) => { token: string; expiresAt: number } | null;
 }
 
 export interface HouseControlResult {
@@ -95,6 +96,7 @@ export async function getNeverPlayCurrent(
       blocked: isExactTrackBlocked(deps, current.songId),
       title: current.title,
       artist: current.artist,
+      ...(() => { const entry=deps.listBlocks().find(e=>e.type==='track'&&e.id===current.songId&&e.undoRevision);const undo=entry?deps.issueUndo?.(entry):null;return undo?{undoToken:undo.token,undoExpiresAt:undo.expiresAt}:{}; })(),
     },
   };
 }
@@ -162,6 +164,7 @@ export async function neverPlayCurrent(
       title: entry.name ?? '',
       artist: entry.artist ?? '',
       purged,
+      ...(() => { const undo=deps.issueUndo?.(entry); return undo ? { undoToken:undo.token, undoExpiresAt:undo.expiresAt } : {}; })(),
     },
   };
 }
