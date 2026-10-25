@@ -1,4 +1,6 @@
 import express from 'express';
+import { createHouseSkip } from '../skip-current.js';
+import { skipTrack } from '../broadcast/liquidsoap-control.js';
 import { queue } from '../broadcast/queue.js';
 import * as blocklist from '../music/blocklist.js';
 import { refreshAutoPlaylist } from '../broadcast/scheduler.js';
@@ -10,6 +12,26 @@ import {
 } from '../house-control.js';
 
 export const router = express.Router();
+
+const houseSkip = createHouseSkip({
+  getNowPlaying: () => queue.getNowPlaying(),
+  commitBeforeSkip: () => queue.commitBeforeSkip(),
+  skipTrack: () => skipTrack(),
+});
+
+for (const method of ['get', 'post'] as const) {
+  router[method]('/house-control/skip-current', async (req, res) => {
+    if (!authorize(req, res)) return;
+    try {
+      const result = method === 'get'
+        ? await houseSkip.status(req.query.songId)
+        : await houseSkip.skip(req.body?.songId);
+      res.status(result.status).json(result.body);
+    } catch {
+      res.status(500).json({ error: 'House skip not confirmed; do not retry automatically' });
+    }
+  });
+}
 
 const deps: NeverPlayDeps = {
   getNowPlaying: () => queue.getNowPlaying(),

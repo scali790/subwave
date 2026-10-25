@@ -352,6 +352,21 @@ export async function synthesizeSample(
 
 // Public entry point. Tries the configured engine; on failure falls back so the
 // DJ never goes silent. Every call is timed into the TTS ring buffer (stats.js).
+export function spokenText(text: string, kind = 'default', persona?: any): string {
+  const language = GLOBAL_VOICE_KINDS.has(kind)
+    ? '' : String(personaFor(persona)?.language || '').trim();
+  const normalized = normalizeForSpeech(stripThinking(text), settings.get().tts?.corrections);
+  return GLOBAL_VOICE_KINDS.has(kind) ? normalized : scrubCjkForSpeech(normalized, language);
+}
+
+// Same target, normalization and contract as speak(); no probes or synthesis.
+export function validateSpokenText(text: string, kind: string, persona?: any): void {
+  const slot = djPersonaTts(kind, persona);
+  if (requestedEngine(kind, slot) === 'remote') {
+    validateSpeech(spokenText(text, kind, persona), remoteTts.constraints(), slot?.voice);
+  }
+}
+
 export async function speak(
   text: string,
   { kind = 'default', outPath, speedScale, persona }: { kind?: string; outPath?: string; speedScale?: number; persona?: any } = {},
@@ -366,10 +381,7 @@ export async function speak(
   // that the free-text generators' own stripThinking never sees. No-op on clean
   // text. Operator speech corrections are read live, so a saved rule applies to
   // the next spoken line with no restart.
-  const normalizedText = normalizeForSpeech(stripThinking(text), settings.get().tts?.corrections);
-  const speakText = GLOBAL_VOICE_KINDS.has(kind)
-    ? normalizedText
-    : scrubCjkForSpeech(normalizedText, language);
+  const speakText = spokenText(text, kind, persona);
   // `persona` overrides the effective persona so the handoff mic-pass can voice
   // the outgoing DJ after the hour has flipped.
   const personaTts = djPersonaTts(kind, persona);
