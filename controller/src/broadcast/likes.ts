@@ -10,7 +10,7 @@
 
 import { readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { createHmac, randomBytes } from 'node:crypto';
+import { createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { config } from '../config.js';
 import { createSerialFileWriter } from '../util/atomic-file.js';
@@ -45,6 +45,7 @@ interface LikeRecord {
   airingKey: string;
   listenerKey: string; // HMAC of the client IP
   likedAt: string;     // ISO timestamp
+  undoRevision?: string; // New record identity; old receipts cannot remove a later re-like.
   // Absent on a listener like, so pre-#1253 records need no backfill.
   via?: 'operator';
 }
@@ -220,10 +221,26 @@ export async function recordLike({ track, startedAt, ip }: RecordLikeInput): Pro
     airingKey,
     listenerKey,
     likedAt: new Date().toISOString(),
+    undoRevision: randomUUID(),
   });
   trimTo(MAX_RECORDS);
   scheduleFlush();
   return { ok: true, duplicate: false, count: countForSong(songId) };
+}
+
+// Exact apparent-listener/airing handle; never grants removal of operator/other likes.
+export async function listenerUndoTarget(songId: string, startedAt: string | null, ip: string) {
+  await load();
+  const r = records.find(r => !isOperator(r) && r.airingKey === airingKeyFor(songId,startedAt) && r.listenerKey === listenerKeyFor(ip));
+  return r ? { kind: 'like' as const, songId:r.songId, airingKey:r.airingKey, listenerKey:r.listenerKey, likedAt:r.likedAt, revision:r.undoRevision || '' } : null;
+}
+
+export async function undoListenerLike(target: { songId: string; airingKey: string; listenerKey: string; likedAt: string; revision: string }) {
+  await load();
+  const before = records.length;
+  records = records.filter(r => isOperator(r) || r.songId!==target.songId || r.airingKey!==target.airingKey || r.listenerKey!==target.listenerKey || r.likedAt!==target.likedAt || (r.undoRevision || '')!==target.revision);
+  await flushStrict(); // also retry persistence after an earlier failed undo
+  return { removed: records.length !== before, count: countForSong(target.songId) };
 }
 
 // Idempotent per song: a double-tap can never write two records.
