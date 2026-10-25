@@ -14,6 +14,7 @@ import * as db from '../music/library-db.js';
 import * as settings from '../settings.js';
 import { requireAdmin } from '../middleware/auth.js';
 import { clientIp } from '../middleware/ratelimit.js';
+import { issueUndo } from '../feedback-undo.js';
 
 export const router = express.Router();
 
@@ -88,6 +89,8 @@ router.post('/like', async (req, res) => {
       );
     }
 
+    const target = await likes.listenerUndoTarget(on.songId,on.startedAt,ip);
+    const undo = target ? issueUndo(target) : null;
     res.json({
       ok: true,
       songId: on.songId,
@@ -96,6 +99,7 @@ router.post('/like', async (req, res) => {
       liked: true,
       alreadyLiked: result.duplicate,
       count: result.count,
+      ...(undo ? { undoToken:undo.token, undoExpiresAt:undo.expiresAt } : {}),
     });
   } catch (err: any) {
     console.error('[likes] like failed:', err.message);
@@ -110,7 +114,10 @@ router.get('/like', async (req, res) => {
     const on = await currentLikeable();
     if (!on) return res.json({ enabled: true, songId: null, liked: false, count: 0 });
     const st = await likes.status({ songId: on.songId, startedAt: on.startedAt, ip: clientIp(req) });
-    res.json({ enabled: true, songId: on.songId, liked: st.liked, count: st.count });
+    const target = st.liked ? await likes.listenerUndoTarget(on.songId,on.startedAt,clientIp(req)) : null;
+    const undo = target ? issueUndo(target) : null;
+    res.json({ enabled: true, songId: on.songId, liked: st.liked, count: st.count,
+      ...(undo ? { undoToken:undo.token, undoExpiresAt:undo.expiresAt } : {}) });
   } catch {
     res.json({ enabled: true, songId: null, liked: false, count: 0 });
   }

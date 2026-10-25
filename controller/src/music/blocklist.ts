@@ -45,6 +45,7 @@ export interface BlockEntry {
   artist: string | null;
   album: string | null;
   addedAt: string;
+  undoRevision?: string;
 }
 
 const FILE_PATH = `${config.stateDir}/blocklist.json`;
@@ -167,6 +168,7 @@ export async function load() {
       artist: e.artist ?? null,
       album: e.album ?? null,
       addedAt: e.addedAt ?? new Date().toISOString(),
+      ...(typeof e.undoRevision === 'string' && /^[a-f0-9-]{36}$/.test(e.undoRevision) ? { undoRevision:e.undoRevision } : {}),
     }));
     // Pre-rules files carry no `rules` key. Unparseable records drop loudly;
     // a state file never blocks boot.
@@ -211,7 +213,7 @@ export function isEmpty(): boolean {
 }
 
 // Add an entry; returns it, or null when (type, id) is already blocked.
-export async function add(input: { type: BlockType; id: string; name?: string | null; artist?: string | null; album?: string | null }): Promise<BlockEntry | null> {
+export async function add(input: { type: BlockType; id: string; name?: string | null; artist?: string | null; album?: string | null; undoRevision?: string }): Promise<BlockEntry | null> {
   if (entries.some((e) => e.type === input.type && e.id === input.id)) return null;
   const entry: BlockEntry = {
     type: input.type,
@@ -220,11 +222,22 @@ export async function add(input: { type: BlockType; id: string; name?: string | 
     artist: input.artist ?? null,
     album: input.album ?? null,
     addedAt: new Date().toISOString(),
+    ...(input.undoRevision ? { undoRevision:input.undoRevision } : {}),
   };
   entries.push(entry);
   rebuildIndex();
   await persist();
   return entry;
+}
+
+export async function undoHouseTrack(id: string, revision: string): Promise<'removed' | 'missing' | 'changed'> {
+  const entry = entries.find(e => e.type==='track' && e.id===id);
+  if (!entry) { await persist(); return 'missing'; }
+  if (entry.undoRevision !== revision) return 'changed';
+  entries = entries.filter(e => e !== entry);
+  rebuildIndex();
+  await persist();
+  return 'removed';
 }
 
 export async function remove(type: BlockType, id: string): Promise<boolean> {

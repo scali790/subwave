@@ -1,4 +1,7 @@
 import express from 'express';
+import { randomUUID } from 'node:crypto';
+import { issueUndo, readUndo } from '../feedback-undo.js';
+import * as likes from '../broadcast/likes.js';
 import { createHouseSkip } from '../skip-current.js';
 import { skipTrack } from '../broadcast/liquidsoap-control.js';
 import { queue } from '../broadcast/queue.js';
@@ -36,7 +39,8 @@ for (const method of ['get', 'post'] as const) {
 const deps: NeverPlayDeps = {
   getNowPlaying: () => queue.getNowPlaying(),
   listBlocks: () => blocklist.list(),
-  addTrackBlock: (input) => blocklist.add(input),
+  addTrackBlock: (input) => blocklist.add({ ...input, undoRevision:randomUUID() }),
+  issueUndo: (entry) => issueUndo({ kind:'block', songId:entry.id, revision:entry.undoRevision }),
   purgeBlocked: () => queue.purgeBlocked(),
   refreshAutoPlaylist: () => refreshAutoPlaylist(),
   log: (level, message) => queue.log(level as any, message),
@@ -73,4 +77,22 @@ router.post('/house-control/never-play-current', async (req, res) => {
     queue.log('error', `house-control never-play failed: ${err?.message || err}`);
     res.status(500).json({ error: 'house control failed' });
   }
+});
+
+router.post('/house-control/undo-feedback', async (req,res) => {
+  if (!authorize(req,res)) return;
+  const action=req.body?.action;
+  if (!req.body || Object.keys(req.body).some(k => !['action','undoToken'].includes(k)) || !['undo_like','undo_never_play'].includes(action)) return res.status(400).json({ error:'Invalid undo request' });
+  const target=readUndo(req.body.undoToken,action==='undo_like'?'like':'block');
+  if (!target) return res.status(409).json({ error:'Undo expired or invalid' });
+  try {
+    if (target.kind==='like') {
+      const result=await likes.undoListenerLike(target);
+      return res.json({ ok:true, liked:false, count:result.count, removed:result.removed });
+    }
+    const result=await blocklist.undoHouseTrack(target.songId,target.revision);
+    if (result==='changed') return res.status(409).json({ error:'Block changed; not removed' });
+    if (result==='removed') refreshAutoPlaylist().catch(() => queue.log('error','Undo: automatic playlist refresh failed'));
+    return res.json({ ok:true, never_play:false, removed:result==='removed' });
+  } catch { return res.status(503).json({ error:'Undo not confirmed; no automatic retry' }); }
 });
