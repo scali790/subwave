@@ -205,6 +205,16 @@ export async function idleOff() {
   return sendCommand('idle_off', 2000);
 }
 
+// Require a positive acknowledgement: older mixers must leave the gate closed,
+// rather than silently resuming yesterday's programme on an unknown command.
+export async function resetIdleProgramme() {
+  if ((await sendCommand('idle_reset', 3000)).trim() !== 'OK') throw new Error('idle programme reset not acknowledged');
+}
+
+export async function resumeFreshProgramme() {
+  if ((await sendCommand('idle_resume_fresh', 3000)).trim() !== 'OK') throw new Error('fresh programme release not acknowledged');
+}
+
 // Returns true when the idle gate is active. `idle_status` replies "on"/"off".
 export async function idleStatus() {
   const res = await sendCommand('idle_status', 2000);

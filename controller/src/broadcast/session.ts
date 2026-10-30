@@ -417,6 +417,19 @@ async function end() {
   logEvent('session.end', { sessionId: _session.id, key: _session.key });
 }
 
+// A long idle restart is a new editorial opening, not an overdue two-host
+// sign-off. Archive the old conversation and invalidate its automatic speech
+// stamps even when the same long-running show is still scheduled.
+export async function restartAfterIdle(ctx: SessionContext): Promise<Session> {
+  const revision = normalizedHostRevision(_session?.hostRevision) + 1;
+  if (_session) await end();
+  _priorPromptMemory = [];
+  const fresh = start(ctx);
+  fresh.hostRevision = revision;
+  await persist();
+  return fresh;
+}
+
 // Keep the live session or roll to a fresh one. Only a genuine show boundary or
 // the 4h cap hard-rolls; an autonomous daypart/mood turnover is a soft shift
 // that keeps the chat history.

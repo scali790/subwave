@@ -749,6 +749,7 @@ services:
       # Bind-mounts override the baked-in copies — radio.liq edits and new
       # sounds land on the next restart, no rebuild.
       - ./liquidsoap/radio.liq:/etc/liquidsoap/radio.liq:ro
+      - ./liquidsoap/idle-resume.liq:/etc/liquidsoap/idle-resume.liq:ro
       - ./sounds:/sounds:ro
       - *state-mount
       - *stems-mount

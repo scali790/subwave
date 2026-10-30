@@ -274,7 +274,9 @@ test("the forecast counts the item's OWN bed", async () => {
   assert.equal(queue.airForecastSec(request), bare + 18);
 });
 
-test('the forecast counts pause-and-talk silence hidden ahead of a request', async () => {
+test('the forecast counts pause-and-talk silence hidden ahead of a request', async (t) => {
+  const at = Date.now();
+  t.mock.method(Date, 'now', () => at);
   reset();
   queue.current = {
     track: { id: 'onair', title: 'On air', duration: 100 },

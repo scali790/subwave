@@ -4,7 +4,9 @@
 // idleAfterMinutes, flip radio.liq's idle gate (telnet idle_on): the mounts
 // stay up serving silence but the music chain stops being pulled, frozen
 // mid-track. Any client still connects while idle, and the first connection
-// resumes (idle_off) exactly where it froze. Contrast POST /stream-stop
+// resumes where it froze only for a short pause in the same programme. Long
+// pauses or a changed programme prepare current audio before releasing the gate.
+// Contrast POST /stream-stop
 // (stream_off), which tears the mounts down — the operator's hard off-air.
 //
 // Fail-OPEN: an unknown count (sustained failure, not one timed-out poll —
@@ -20,6 +22,14 @@ import { gatedListenerCount, refresh, setStreamIdle } from './listeners.js';
 import { idleOn, idleOff, idleStatus } from './liquidsoap-control.js';
 import { queue } from './queue.js';
 import { nextIdleState, type IdleState } from './stream-idle-pure.js';
+import { resumeProgramme, type IdleProgramme } from './idle-resume.js';
+import { refreshAutoPlaylist } from './scheduler.js';
+import { getFullContext } from '../context.js';
+import * as session from './session.js';
+import { readFile } from 'node:fs/promises';
+import { config } from '../config.js';
+import { zonedISODate } from '../time.js';
+import { resumeFreshProgramme } from './liquidsoap-control.js';
 
 // One tick every 5s. Live: read the 15s monitor's cached count. Idle: force a
 // fresh poll, so a new listener waits ~5s (worst case ~8s, since the forced
@@ -28,6 +38,25 @@ import { nextIdleState, type IdleState } from './stream-idle-pure.js';
 const TICK_MS = 5000;
 
 let state: IdleState = { idle: false, zeroSince: null };
+let pausedProgramme: IdleProgramme | null = null;
+let ticking = false;
+let resumeWarning = false;
+
+function programmeClock(): IdleProgramme {
+  const now = new Date();
+  return { pausedAt: now.getTime(), programmeKey: `${zonedISODate(now)}:${settings.resolveActiveShow(now)?.id ?? 'auto'}` };
+}
+
+async function prepareFreshProgramme() {
+  queue.beginProgrammeResume();
+  // Roll metadata while still silent, then rebuild from the current programme.
+  await session.restartAfterIdle(await getFullContext());
+  await refreshAutoPlaylist();
+  const playlist = await readFile(config.liquidsoap.autoPlaylist, 'utf8');
+  const first = playlist.split(/\r?\n/).find(line => line.trim() && !line.startsWith('#'));
+  if (!first) throw new Error('current programme has no playable tracks');
+  await queue.prepareProgrammeResume(first);
+}
 
 // Read by GET /state so the player can tell "nobody's here" from "broken".
 export function isIdle() {
@@ -52,12 +81,23 @@ async function tick() {
   try {
     if (action === 'pause') {
       await idleOn();
+      pausedProgramme = programmeClock();
       queue.log(
         'scheduler',
         `programme idle-paused — no listeners for ${idleAfterMin} min (mounts stay up, resumes on connect)`,
       );
     } else if (action === 'resume') {
-      await idleOff();
+      const fresh = await resumeProgramme(pausedProgramme, {
+        clock: programmeClock,
+        prepare: prepareFreshProgramme,
+        release: async reset => {
+          if (reset) await resumeFreshProgramme(); else await idleOff();
+        },
+      });
+      queue.finishProgrammeResume();
+      resumeWarning = false;
+      pausedProgramme = null;
+      if (fresh) queue.log('scheduler', 'Fresh programme prepared for the current station time');
       // Warm the tts-heavy sidecar (#1579): a cold Chatterbox reload is
       // 30-60s, audible if it lands on the first link after the room fills.
       // Not awaited and never throws — the render path reloads on its own, so
@@ -73,6 +113,10 @@ async function tick() {
       await idleOn();
     }
   } catch {
+    if (action === 'resume' && !resumeWarning) {
+      queue.log('error', 'Programme resume not ready; idle output stays silent and preparation will retry');
+      resumeWarning = true;
+    }
     return; // telnet unreachable — keep the current state, retry next tick
   }
   state = next;
@@ -92,7 +136,9 @@ export function startStreamIdleMonitor() {
       /* Liquidsoap not up yet — start live; ticks reconcile from here */
     }
     setInterval(() => {
-      tick().catch(() => {});
+      if (ticking) return;
+      ticking = true;
+      tick().catch(() => {}).finally(() => { ticking = false; });
     }, TICK_MS);
   })();
 }
