@@ -11,7 +11,7 @@
 //   kinds.ts     the voice-kind registry the DJ recap reads
 //   voice-io.ts  handoff-file writes + the spoken-segment serialiser
 
-import { readFile } from 'node:fs/promises';
+import { readFile, unlink } from 'node:fs/promises';
 import { existsSync, readFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { basename } from 'node:path';
@@ -144,6 +144,7 @@ import {
   clipDurationMs,
   speechDurationMs,
   writeHandoff,
+  invalidatePendingHandoffs,
   jingleAiredAtMs,
   type QueuedVoice,
   type VoiceHandoff,
@@ -393,7 +394,7 @@ const PENDING_JINGLE_TTL_MS = 30 * 60 * 1000;
 const HANDOFF_BOUNDARY_WAIT_MS = 2 * 60_000;
 
 // transitions far more often — a working DJ talks across most of them.
-class Queue {
+export class Queue {
   upcoming: QueueItem[] = [];  // request items pushed by listeners, not yet playing
   current: QueueItem | null = null;    // what's broadcasting right now (request or auto)
   history: QueueItem[] = [];   // finished tracks, newest first
@@ -404,6 +405,8 @@ class Queue {
   senderBusy = false;          // drain-to-Liquidsoap mutex
   pendingForceDrain = false;   // a forced drain arrived while senderBusy — re-run on release
   pickerBusy = false;          // prevent concurrent LLM picks
+  _programmeResumePreparing = false;
+  _programmeResumeVersion = 0;
   autoPick = true;             // toggle: should we ask Ollama for next track when idle
   autoLink = true;             // toggle: random DJ links between auto tracks
   tracksUntilLink = pickLinkInterval();
@@ -433,6 +436,53 @@ class Queue {
   _writeHandoff = writeHandoff;
   _speak = speak;
   _airVoice = airVoice;
+
+  // The queue remains the only next.txt writer. Watcher/picker/drain work is
+  // held until the new request has resolved and the mixer acknowledges release.
+  beginProgrammeResume() {
+    this._programmeResumeVersion++;
+    this._programmeResumePreparing = true;
+    if (this.senderBusy || this.pickerBusy) throw new Error('waiting for in-flight programme work');
+    invalidatePendingHandoffs();
+  }
+
+  async prepareProgrammeResume(uri: string, {
+    resetMixer = liquidsoapControl.resetIdleProgramme,
+    queueStatus = liquidsoapControl.djQueueStatus,
+    generation = randomBytes(16).toString('hex'),
+  } = {}) {
+    this.beginProgrammeResume();
+    if (!uri || /[\r\n]/.test(uri)) throw new Error('invalid fresh programme request');
+    for (const item of this.upcoming) this._introRenders.invalidate(item);
+    if (this.current) this._introRenders.invalidate(this.current);
+    if (this._handoffBoundaryTimer) clearTimeout(this._handoffBoundaryTimer);
+    this._handoffBoundaryTimer = null;
+    this._pendingVoice?.onCompleted?.(false);
+    this._pendingVoice = null;
+    this.upcoming = [];
+    this.current = null;
+    this.lastSeenKey = null;
+    this._nowPlaying = null;
+    await discardPauseTalkCommit();
+    for (const path of [config.liquidsoap.queueFile, config.liquidsoap.sayFile,
+      config.liquidsoap.introFile, config.liquidsoap.jingleFile, config.liquidsoap.sfxFile,
+      config.liquidsoap.nowPlayingFile]) {
+      await unlink(path).catch((err: NodeJS.ErrnoException) => { if (err.code !== 'ENOENT') throw err; });
+    }
+    await resetMixer(generation);
+    await this._writeHandoff(config.liquidsoap.queueFile, uri);
+    const deadline = Date.now() + 30_000;
+    while (Date.now() < deadline) {
+      if (await queueStatus() === 'ready') return generation;
+      await sleep(250);
+    }
+    throw new Error('fresh programme did not resolve; idle gate remains closed');
+  }
+
+  finishProgrammeResume() {
+    this._programmeResumePreparing = false;
+    this.persist();
+  }
 
   startIntroRender(item: QueueItem) {
     const expected = introSpeechIdentity(item);
@@ -902,6 +952,7 @@ class Queue {
     linkPrev?: { id?: string | null; title?: string | null; artist?: string | null } | null;
     linkClockAt?: Date | number | null;
   }) {
+    if (this._programmeResumePreparing) throw new Error("programme resume in progress");
     // The blocklist is absolute — even explicit manual queueing is refused
     // until the entry is unblocked — so it sits above `allowDuplicate`. Every
     // playback path funnels through push() (dj-agent, requests, MCP, studio
@@ -1760,6 +1811,7 @@ class Queue {
   // advances; past the hard deadline the item drains with track-intrinsic
   // stamps only. transitions.pairDrain off → eager drain, today's behaviour.
   async drainToLiquidsoap(force = false) {
+    if (this._programmeResumePreparing) return;
     this.invalidateObsoleteHostSpeech();
     if (this.senderBusy) {
       // A forced drain (the clip-as-track recovery) must not vanish into a
@@ -2777,6 +2829,7 @@ class Queue {
   // duck than it had before #1465. Same rule as onSpoken's channel: passed by
   // whoever knows, never re-derived (#1382).
   async airIntro(item: QueueItem, predecessor: Track | null = null, { overBed = false }: { overBed?: boolean } = {}) {
+    if (this._programmeResumePreparing) return;
     // Station voice off (settings.tts.enabled). The generation sites already
     // skip writing intros, so this only catches an item queued BEFORE the
     // switch was flipped — it must not air its script now. Backstop, not the
@@ -3336,6 +3389,7 @@ class Queue {
   // append behind the held item while the asynchronous selection is running.
   // Fire-and-forget; pickerBusy is the reentry guard.
   runPickCycle({ isAutonomous, pickAnchorItem = null }: { isAutonomous: boolean; pickAnchorItem?: QueueItem | null }) {
+    if (this._programmeResumePreparing) return;
     let wantLink = false;
     if (this.autoLink && isAutonomous && this.history[0]) {
       this.tracksUntilLink--;
@@ -4234,7 +4288,11 @@ class Queue {
   // /now-playing poll never has to touch the disk.
   startWatcher() {
     const tick = async () => {
-      this._nowPlaying = await this.readNowPlayingFromDisk();
+      if (this._programmeResumePreparing) return;
+      const version = this._programmeResumeVersion;
+      const nowPlaying = await this.readNowPlayingFromDisk();
+      if (this._programmeResumePreparing || version !== this._programmeResumeVersion) return;
+      this._nowPlaying = nowPlaying;
       this._nowPlayingFresh = true;
       this.onTrackStarted(this._nowPlaying);
       // Beds ride the same tick rather than a poller of their own — a bed's

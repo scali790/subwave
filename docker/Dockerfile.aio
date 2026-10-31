@@ -193,6 +193,7 @@ COPY --from=webbuild /web/content /web/content
 # --- Broadcast + edge config + bundled audio --------------------------------
 COPY docker/icecast.xml.template /etc/icecast2/icecast.xml.template
 COPY liquidsoap/radio.liq /etc/liquidsoap/radio.liq
+COPY liquidsoap/idle-resume.liq /etc/liquidsoap/idle-resume.liq
 COPY sounds /sounds
 COPY docker/aio/Caddyfile /etc/caddy/Caddyfile
 COPY docker/aio/supervisor.sh /usr/local/bin/subwave-supervisor
