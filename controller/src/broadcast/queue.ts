@@ -449,6 +449,7 @@ export class Queue {
   async prepareProgrammeResume(uri: string, {
     resetMixer = liquidsoapControl.resetIdleProgramme,
     queueStatus = liquidsoapControl.djQueueStatus,
+    generation = randomBytes(16).toString('hex'),
   } = {}) {
     this.beginProgrammeResume();
     if (!uri || /[\r\n]/.test(uri)) throw new Error('invalid fresh programme request');
@@ -468,11 +469,11 @@ export class Queue {
       config.liquidsoap.nowPlayingFile]) {
       await unlink(path).catch((err: NodeJS.ErrnoException) => { if (err.code !== 'ENOENT') throw err; });
     }
-    await resetMixer();
+    await resetMixer(generation);
     await this._writeHandoff(config.liquidsoap.queueFile, uri);
     const deadline = Date.now() + 30_000;
     while (Date.now() < deadline) {
-      if (await queueStatus() === 'ready') return;
+      if (await queueStatus() === 'ready') return generation;
       await sleep(250);
     }
     throw new Error('fresh programme did not resolve; idle gate remains closed');

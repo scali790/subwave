@@ -1,3 +1,4 @@
+import { acknowledgeFreshResume } from './idle-resume.js';
 // Liquidsoap telnet client. radio.liq registers a "restart" command that calls
 // shutdown(); the container restart-policy brings the mixer back with whatever
 // settings files the controller just wrote.
@@ -207,12 +208,13 @@ export async function idleOff() {
 
 // Require a positive acknowledgement: older mixers must leave the gate closed,
 // rather than silently resuming yesterday's programme on an unknown command.
-export async function resetIdleProgramme() {
-  if ((await sendCommand('idle_reset', 3000)).trim() !== 'OK') throw new Error('idle programme reset not acknowledged');
+export async function resetIdleProgramme(generation: string) {
+  if (!/^[a-f0-9]{32}$/.test(generation)) throw new Error('invalid programme generation');
+  if ((await sendCommand(`idle_reset ${generation}`, 3000)).trim() !== 'OK') throw new Error('idle programme reset not acknowledged');
 }
 
-export async function resumeFreshProgramme() {
-  if ((await sendCommand('idle_resume_fresh', 3000)).trim() !== 'OK') throw new Error('fresh programme release not acknowledged');
+export async function resumeFreshProgramme(generation: string) {
+  await acknowledgeFreshResume(generation, command => sendCommand(command, 3000));
 }
 
 // Returns true when the idle gate is active. `idle_status` replies "on"/"off".

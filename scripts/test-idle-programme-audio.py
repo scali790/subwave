@@ -60,8 +60,11 @@ results = {}
 for mode in ['baseline', 'candidate']:
     candidate = mode == 'candidate'
     script = base.replace('OUTPUT', mode).replace('INCLUDE', '%include "/source/liquidsoap/idle-resume.liq"' if candidate else '')
-    script = script.replace('PREPARE', 'ignore(server.execute("idle_reset"))\n  ignore(dj_queue.push(request.create("/lab/morning.wav")))' if candidate else 'ignore(dj_queue.push(request.create("/lab/morning.wav")))')
-    script = script.replace('RELEASE', 'ignore(server.execute("idle_resume_fresh"))' if candidate else 'idle_mode:=false')
+    script = script.replace('PREPARE', 'ignore(server.execute("idle_reset", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"))\n  ignore(dj_queue.push(request.create("/lab/morning.wav")))' if candidate else 'ignore(dj_queue.push(request.create("/lab/morning.wav")))')
+    script = script.replace('RELEASE', '''first=server.execute("idle_resume_fresh", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+  duplicate=server.execute("idle_resume_fresh", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+  obsolete=server.execute("idle_resume_fresh", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+  if first==["OK"] and duplicate==["OK"] and obsolete!=["OK"] then log("IDLE_PROTOCOL_PASS") end'''  if candidate else 'idle_mode:=false')
     (out / (mode + '.liq')).write_text(script, encoding='utf-8')
     cmd = ['docker', 'run', '--rm', '--name', 'subwave-idle-audio-' + mode,
            '--network', 'none', '--cpus', '2', '--entrypoint', 'liquidsoap',
@@ -74,6 +77,8 @@ for mode in ['baseline', 'candidate']:
         subprocess.run(['docker', 'kill', 'subwave-idle-audio-' + mode], capture_output=True, timeout=10)
         raise
     (out / (mode + '.log')).write_text(run.stdout + run.stderr, encoding='utf-8')
+    if candidate and run.returncode == 0:
+        assert 'IDLE_PROTOCOL_PASS' in run.stdout + run.stderr, 'generation/idempotency protocol failed'
     if run.returncode:
         raise RuntimeError(f'{mode} Liquidsoap failed; see {out / (mode + ".log")}')
     with wave.open(str(out / (mode + '.wav'))) as wav:

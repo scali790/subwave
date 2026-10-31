@@ -90,3 +90,37 @@ Final local receipt (2026-10-30): full controller suite **1872/1872 PASS**,
 including **16 idle-resume regressions**. ESLint/TypeScript PASS with zero errors
 and 788 existing warnings. Actual baseline/candidate audio regression PASS.
 Paired Verbatim draft: https://github.com/scali790/raspy-homelab/pull/312.
+
+## Review corrections (2026-10-31)
+
+Handoff cancellation is checked again at the atomic commit. The guarded commit
+uses a synchronous rename in the same event-loop turn as the epoch check, after
+the asynchronous temporary-file write. An in-flight old write cannot publish
+newly obsolete speech after invalidation, and its temporary file is removed.
+
+Each prepared mixer request carries a random 128-bit generation. The mixer
+acknowledges the same released generation without another skip; stale or
+missing generations are rejected. The controller retries a lost acknowledgement
+once with the same generation. If both replies are lost, or the mixer restarts,
+the next preparation reasserts idle_on before context/library work and rebuilds
+a new generation. This recovers queue/watcher/drain ownership without claiming
+that an unknown mixer state is a successful release. Matching controller and
+broadcast versions are still required.
+
+Regression coverage includes an in-flight real atomic write held at a test
+barrier, one and two lost replies, a mixer restart between preparation and
+release, stale generation refusal and command-input validation. The real audio
+harness additionally exercises duplicate acknowledgement and stale generation
+against the actual Liquidsoap module.
+
+GitHub Actions fork consent is now enabled. Only Lint, Verify CLI assets and the
+main-source guard remain enabled. Deploy CLI installer, Publish CLI binaries,
+Publish images, Release Please and the scheduled image scan are deliberately
+disabled on this fork. No release or deployment workflow was run;
+reactivating them is a separate operator decision.
+
+Final correction receipt (2026-10-31): controller suite **1878/1878 PASS**,
+including **22 idle-resume regressions**, TypeScript/ESLint PASS (0 errors,
+788 existing warnings). Actual baseline/candidate audio and generation/duplicate
+protocol PASS. Broadcast image built and full script syntax checked:
+`sha256:100aaef1e5d2ec70b00b89ab41fe6a5af9edc93d1dbe3ca5c5261a3e11de52cb`.

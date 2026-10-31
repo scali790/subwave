@@ -61,7 +61,7 @@ export async function writeHandoff(path: string, contents: string, { maxWaitMs =
       // half-written (or truncated-but-empty) file — its poll handlers read,
       // DELETE, then check non-empty, so a poll landing mid-write would drop
       // this handoff silently. rename(2) is atomic on the same volume.
-      await writeFileAtomic(path, contents);
+      await writeFileAtomic(path, contents, { canCommit: () => epoch === handoffEpoch });
     });
   // Hold the slot until liquidsoap consumes THIS write too, so the next
   // queued writer waits for the audio to land, not just for the write call to

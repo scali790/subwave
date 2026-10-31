@@ -49,13 +49,16 @@ function programmeClock(): IdleProgramme {
 
 async function prepareFreshProgramme() {
   queue.beginProgrammeResume();
+  // A previous release may have succeeded without its reply, or the mixer may
+  // have restarted live. Re-close the gate before context/library preparation.
+  await idleOn();
   // Roll metadata while still silent, then rebuild from the current programme.
   await session.restartAfterIdle(await getFullContext());
   await refreshAutoPlaylist();
   const playlist = await readFile(config.liquidsoap.autoPlaylist, 'utf8');
   const first = playlist.split(/\r?\n/).find(line => line.trim() && !line.startsWith('#'));
   if (!first) throw new Error('current programme has no playable tracks');
-  await queue.prepareProgrammeResume(first);
+  return queue.prepareProgrammeResume(first);
 }
 
 // Read by GET /state so the player can tell "nobody's here" from "broken".
@@ -87,11 +90,15 @@ async function tick() {
         `programme idle-paused — no listeners for ${idleAfterMin} min (mounts stay up, resumes on connect)`,
       );
     } else if (action === 'resume') {
+      let generation: string | undefined;
       const fresh = await resumeProgramme(pausedProgramme, {
         clock: programmeClock,
-        prepare: prepareFreshProgramme,
+        prepare: async () => { generation = await prepareFreshProgramme(); },
         release: async reset => {
-          if (reset) await resumeFreshProgramme(); else await idleOff();
+          if (reset) {
+            if (!generation) throw new Error('missing prepared programme generation');
+            await resumeFreshProgramme(generation);
+          } else await idleOff();
         },
       });
       queue.finishProgrammeResume();

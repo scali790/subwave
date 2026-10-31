@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import test, { after } from 'node:test';
+import fs from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 import { mkdtempSync, existsSync, readFileSync, writeFileSync, rmSync, unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -7,6 +9,7 @@ import { join } from 'node:path';
 const root = mkdtempSync(join(tmpdir(), 'subwave-idle-resume-'));
 process.env.STATE_DIR = root;
 const { Queue } = await import('../src/broadcast/queue.js');
+const { acknowledgeFreshResume, resumeProgramme } = await import('../src/broadcast/idle-resume.js');
 const { config } = await import('../src/config.js');
 const { invalidatePendingHandoffs, writeHandoff } = await import('../src/broadcast/queue/voice-io.js');
 after(async () => {
@@ -85,3 +88,60 @@ test('an old in-flight watcher read cannot publish after fresh preparation', asy
   assert.equal(starts, 0);
   assert.equal(q._nowPlaying, null);
 });
+
+test('an old atomic write already in flight cannot commit over fresh speech', async (t) => {
+  const path = join(root, 'atomic-speech.txt');
+  const original = fs.promises.writeFile;
+  let entered!: () => void, release!: () => void;
+  const writing = new Promise<void>(resolve => { entered = resolve; });
+  const blocked = new Promise<void>(resolve => { release = resolve; });
+  t.mock.method(fs.promises, 'writeFile', async (...args: Parameters<typeof original>) => {
+    if (args[1] === 'evening speech') { entered(); await blocked; }
+    return original(...args);
+  });
+  syncBuiltinESMExports();
+  try {
+    const oldWrite = writeHandoff(path, 'evening speech', { maxWaitMs: 0 });
+    const rejected = assert.rejects(oldWrite, /invalidated before commit/);
+    await writing;
+    invalidatePendingHandoffs();
+    await writeHandoff(path, 'morning speech', { maxWaitMs: 0 });
+    release(); await rejected;
+    assert.equal(readFileSync(path, 'utf8'), 'morning speech');
+  } finally { release?.(); t.mock.restoreAll(); syncBuiltinESMExports(); }
+});
+
+for (const fault of ['two lost replies', 'mixer restart'] as const) {
+  test(`fresh preparation recovers after ${fault} without leaving the Queue held`, async () => {
+    const q = new Queue(); q._writeHandoff = async () => {};
+    let idle = true, mixerGeneration = '', lost = fault === 'two lost replies' ? 2 : 0;
+    let restart = fault === 'mixer restart', preparedGeneration = '';
+    const deps = {
+      clock: () => ({ pausedAt: 1000, programmeKey: 'morning' }),
+      prepare: async () => {
+        q.beginProgrammeResume();
+        idle = true; // the monitor's idle_on, before any context/library work
+        preparedGeneration = await q.prepareProgrammeResume('/morning.wav', {
+          resetMixer: async generation => { assert.equal(idle, true); mixerGeneration = generation; },
+          queueStatus: async () => 'ready' as const,
+        });
+      },
+      release: async () => {
+        if (restart) { restart = false; idle = false; mixerGeneration = ''; }
+        await acknowledgeFreshResume(preparedGeneration, async command => {
+          const generation = command.split(' ')[1];
+          if (generation !== mixerGeneration) return 'ERROR generation mismatch';
+          idle = false;
+          if (lost > 0) { lost--; throw Error('lost reply'); }
+          return 'OK';
+        });
+      },
+    };
+    await assert.rejects(resumeProgramme(null, deps));
+    assert.equal(q._programmeResumePreparing, true);
+    await resumeProgramme(null, deps);
+    q.finishProgrammeResume();
+    assert.equal(idle, false);
+    assert.equal(q._programmeResumePreparing, false);
+  });
+}

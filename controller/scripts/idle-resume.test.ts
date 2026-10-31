@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { needsFreshProgramme, resumeProgramme } from '../src/broadcast/idle-resume.js';
+import { acknowledgeFreshResume, needsFreshProgramme, resumeProgramme } from '../src/broadcast/idle-resume.js';
 import { setStationTimezone, zonedISODate, zonedParts } from '../src/time.js';
 
 setStationTimezone('Europe/Zurich');
@@ -81,4 +81,30 @@ test('mixer refusal propagates instead of claiming a successful resume', async (
     clock: () => clock('2026-10-31T07:00:00Z'), prepare: async () => {},
     release: async () => { throw Error('old mixer'); },
   }), /old mixer/);
+});
+
+test('a successful mixer release with a lost reply retries the same generation', async () => {
+  const generation = 'a'.repeat(32), commands: string[] = [];
+  let released = false, skips = 0;
+  await acknowledgeFreshResume(generation, async command => {
+    commands.push(command);
+    if (!released) { released = true; skips++; throw new Error('lost reply'); }
+    return 'OK';
+  });
+  assert.deepEqual(commands, [`idle_resume_fresh ${generation}`, `idle_resume_fresh ${generation}`]);
+  assert.equal(skips, 1);
+});
+
+test('mixer generation mismatch is refused after bounded retries', async () => {
+  let calls = 0;
+  await assert.rejects(acknowledgeFreshResume('b'.repeat(32), async () => {
+    calls++; return 'ERROR generation mismatch';
+  }), /not acknowledged/);
+  assert.equal(calls, 2);
+});
+
+test('invalid generation cannot reach the mixer command channel', async () => {
+  let calls = 0;
+  await assert.rejects(acknowledgeFreshResume('bad\nidle_off', async () => { calls++; return 'OK'; }), /invalid programme/);
+  assert.equal(calls, 0);
 });
