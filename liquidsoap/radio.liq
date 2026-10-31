@@ -1403,6 +1403,7 @@ radio = smooth_add(
 # where it froze. A plain blank() is safe; the #660 CPU spin was specific to
 # blank.skip. Not persisted — a mixer restart comes back live and the controller
 # re-asserts idle if the room is still empty.
+programme_music = music
 idle_mode = ref(false)
 radio = switch(
   id="idle_gate",
@@ -1926,6 +1927,8 @@ server.register(
   usage="idle_status",
   fun(_) -> if idle_mode() then "on" else "off" end
 )
+
+%include "idle-resume.liq"
 
 # Skip the current track: .skip() on the final source propagates down the chain
 # and force-ends the track, after which cross runs the normal dj_transition into

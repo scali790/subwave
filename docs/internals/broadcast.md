@@ -1,5 +1,9 @@
 # Internals: broadcast, queue and speech timing
 
+Long idle resumes now use a closed-gate programme refresh; short same-show
+pauses preserve playback. See [idle programme resume](../idle-programme-resume.md)
+for the clock/queue contract, isolated audio regression and paired-image gate.
+
 Why the queue, transition and speech-timing code is shaped the way it is. The
 short invariants are in the root `CLAUDE.md`; read the matching section here
 before changing any of them, because most of these paragraphs record a measured

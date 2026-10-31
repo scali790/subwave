@@ -15,12 +15,19 @@ import { rename, unlink, writeFile } from 'node:fs/promises';
 export async function writeFileAtomic(
   path: string,
   contents: string | Buffer,
-  { mode }: { mode?: number } = {},
+  { mode, canCommit }: { mode?: number; canCommit?: () => boolean } = {},
 ): Promise<void> {
   const tmp = `${path}.${randomBytes(4).toString('hex')}.tmp`;
   try {
     await writeFile(tmp, contents, mode != null ? { mode } : {});
-    await rename(tmp, path);
+    if (canCommit) {
+      // Cancellation and commit share one event-loop turn. An asynchronous
+      // rename after the check could still publish a now-obsolete handoff.
+      if (!canCommit()) throw new Error('atomic write invalidated before commit');
+      renameSync(tmp, path);
+    } else {
+      await rename(tmp, path);
+    }
   } catch (err) {
     // Nothing to remove if writeFile failed before creating the file.
     await unlink(tmp).catch(() => {});

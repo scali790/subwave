@@ -14,6 +14,8 @@ process.env.STATE_DIR = root;
 const fakePiper = join(root, 'fake-piper.sh');
 const fakePiperWav = join(root, 'fake-piper.wav');
 writeFileSync(fakePiper, `#!/bin/sh
+# Consume the input like Piper does, before exiting or the parent can hit EPIPE.
+cat >/dev/null
 while [ "$#" -gt 0 ]; do
   if [ "$1" = "--output_file" ]; then cp "$FAKE_PIPER_WAV" "$2"; exit 0; fi
   shift

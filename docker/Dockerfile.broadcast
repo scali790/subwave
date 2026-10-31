@@ -28,6 +28,7 @@ RUN apt-get update -qq \
 # bind-mount over the top).
 COPY docker/icecast.xml.template /etc/icecast2/icecast.xml.template
 COPY liquidsoap/radio.liq /etc/liquidsoap/radio.liq
+COPY liquidsoap/idle-resume.liq /etc/liquidsoap/idle-resume.liq
 COPY sounds /sounds
 
 COPY docker/broadcast-entrypoint.sh /usr/local/bin/broadcast-entrypoint

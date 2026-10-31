@@ -20,6 +20,17 @@ import { sleep } from './pure.js';
 import { awaitVoiceAir } from './voice-marker.js';
 
 const _handoffChains: Map<string, Promise<void>> = new Map();
+let handoffEpoch = 0;
+
+// A fresh programme discards unaired speech, including serialised callbacks
+// still waiting for an old clip. Already published mixer queues are cleared by
+// idle_reset while the audio gate is closed.
+export function invalidatePendingHandoffs() {
+  handoffEpoch++;
+  _handoffChains.clear();
+  _voiceChain = Promise.resolve();
+  _chainFreeAt = 0;
+}
 
 async function waitForConsumed(path: string, maxWaitMs: number) {
   const start = Date.now();
@@ -35,6 +46,7 @@ async function waitForConsumed(path: string, maxWaitMs: number) {
 }
 
 export async function writeHandoff(path: string, contents: string, { maxWaitMs = 1500 } = {}) {
+  const epoch = handoffEpoch;
   const prev = _handoffChains.get(path) || Promise.resolve();
   const next = prev
     .catch(() => undefined)
@@ -44,11 +56,12 @@ export async function writeHandoff(path: string, contents: string, { maxWaitMs =
       // meantime, or this is the first write of the session), this returns
       // immediately.
       if (existsSync(path)) await waitForConsumed(path, maxWaitMs);
+      if (epoch !== handoffEpoch) throw new Error('discarded handoff from an earlier programme');
       // Write-to-temp + rename so liquidsoap's poll never observes a
       // half-written (or truncated-but-empty) file — its poll handlers read,
       // DELETE, then check non-empty, so a poll landing mid-write would drop
       // this handoff silently. rename(2) is atomic on the same volume.
-      await writeFileAtomic(path, contents);
+      await writeFileAtomic(path, contents, { canCommit: () => epoch === handoffEpoch });
     });
   // Hold the slot until liquidsoap consumes THIS write too, so the next
   // queued writer waits for the audio to land, not just for the write call to
@@ -166,6 +179,7 @@ export async function airVoice(
       airMarkerPromise?: Promise<number | null>;
     } = {},
 ): Promise<VoiceHandoff> {
+  const epoch = handoffEpoch;
   // Duration is read from the bare WAV path (header parse), so compute it BEFORE
   // wrapping — the annotate URI isn't a real file. The wrapped URI is only what
   // gets written to the handoff file for Liquidsoap to consume.
@@ -192,6 +206,7 @@ export async function airVoice(
       // A jingle stinger may be on air (or inside the cross buffer) right now —
       // it plays outside this serialiser, so wait it out before handing over.
       await waitForJingleClear();
+      if (epoch !== handoffEpoch) throw new Error('discarded speech from an earlier programme');
       return writeHandoff(path, uri);
     });
   // Extend the shared lock until this clip has (about) finished playing.
